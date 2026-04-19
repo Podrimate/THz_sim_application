@@ -179,3 +179,14 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# THzSim local outputs
+_tmp_check/
+_tmp_doc_probe/
+_tmp_extended_scenarios/
+_tmp_nb_test_check/
+_tmp_nb_workflow_check/
+notebooks/runs/
+notebooks/workflow_outputs/
+*.aux
+*.out
