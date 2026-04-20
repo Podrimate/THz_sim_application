@@ -233,6 +233,9 @@ def _measurement_to_config(measurement):
             "mode": measurement.mode,
             "angle_deg": float(measurement.angle_deg),
             "polarization": measurement.polarization,
+            "polarization_mix": None
+            if measurement.polarization_mix is None
+            else float(measurement.polarization_mix),
             "reference_standard": _reference_standard_to_config(measurement.reference_standard),
         }
     if isinstance(measurement, dict):
@@ -447,6 +450,7 @@ def _measurement_from_config(measurement_config, *, reference_result):
         mode=config.get("mode", "transmission"),
         angle_deg=config.get("angle_deg", 0.0),
         polarization=config.get("polarization", "s"),
+        polarization_mix=config.get("polarization_mix"),
         reference_standard=reference_standard,
     )
 

@@ -8,6 +8,7 @@ from scipy.optimize import differential_evolution, minimize
 
 from thzsim2.core.forward import simulate_sample_from_reference
 from thzsim2.core.metrics import mse, relative_l2, snr_db
+from thzsim2.models import Measurement, ResolvedMeasurementFitParameter
 
 EPS0 = 8.8541878128e-12
 
@@ -62,6 +63,43 @@ def apply_fit_values(resolved_stack, fit_values, fit_parameters):
     for value, fit_parameter in zip(values, fit_parameters, strict=True):
         _set_by_path(stack, stack_path_from_user_path(fit_parameter.path), float(value))
     return stack
+
+
+def apply_measurement_fit_values(measurement, fit_values, measurement_fit_parameters):
+    if measurement is None:
+        payload = {
+            "mode": "transmission",
+            "angle_deg": 0.0,
+            "polarization": "s",
+            "polarization_mix": None,
+            "reference_standard": None,
+        }
+    elif isinstance(measurement, Measurement):
+        payload = {
+            "mode": measurement.mode,
+            "angle_deg": measurement.angle_deg,
+            "polarization": measurement.polarization,
+            "polarization_mix": measurement.polarization_mix,
+            "reference_standard": measurement.reference_standard,
+        }
+    elif isinstance(measurement, dict):
+        payload = deepcopy(dict(measurement))
+    else:
+        raise TypeError("measurement must be a Measurement, dictionary, or None")
+
+    values = np.asarray(fit_values, dtype=np.float64)
+    if values.ndim != 1:
+        raise ValueError("measurement fit_values must be 1D")
+    if values.size != len(measurement_fit_parameters):
+        raise ValueError("measurement fit_values length does not match measurement_fit_parameters")
+
+    for value, fit_parameter in zip(values, measurement_fit_parameters, strict=True):
+        payload[str(fit_parameter.path)] = float(value)
+    return Measurement(**payload)
+
+
+def _all_fit_parameter_specs(sample_fit_parameters, measurement_fit_parameters):
+    return list(sample_fit_parameters) + list(measurement_fit_parameters)
 
 
 def objective_metric_value(y_model, y_true, metric: str) -> float:
@@ -186,17 +224,27 @@ def _estimate_parameter_sigmas(
     observed_trace,
     initial_stack,
     fit_parameters,
+    measurement_fit_parameters,
     max_internal_reflections,
     measurement,
     rel_step,
 ):
-    p = len(fit_parameters)
-    fitted_stack = apply_fit_values(initial_stack, x_opt, fit_parameters)
+    sample_fit_parameters = list(fit_parameters)
+    measurement_fit_parameters = list(measurement_fit_parameters)
+    all_fit_parameters = _all_fit_parameter_specs(sample_fit_parameters, measurement_fit_parameters)
+    p = len(all_fit_parameters)
+    split_index = len(sample_fit_parameters)
+    fitted_stack = apply_fit_values(initial_stack, x_opt[:split_index], sample_fit_parameters)
+    fitted_measurement = apply_measurement_fit_values(
+        measurement,
+        x_opt[split_index:],
+        measurement_fit_parameters,
+    )
     fitted_trace = simulate_sample_from_reference(
         reference,
         fitted_stack,
         max_internal_reflections=max_internal_reflections,
-        measurement=measurement,
+        measurement=fitted_measurement,
     )["sample_trace"]
     residual0 = _residual_vector(fitted_trace, observed_trace)
     m = residual0.size
@@ -204,7 +252,7 @@ def _estimate_parameter_sigmas(
         return None, None
 
     J = np.zeros((m, p), dtype=np.float64)
-    for index, fit_parameter in enumerate(fit_parameters):
+    for index, fit_parameter in enumerate(all_fit_parameters):
         lo = float(fit_parameter.bound_min)
         hi = float(fit_parameter.bound_max)
         xj = float(x_opt[index])
@@ -217,17 +265,29 @@ def _estimate_parameter_sigmas(
         if x_plus[index] == x_minus[index]:
             continue
 
+        sample_plus = apply_fit_values(initial_stack, x_plus[:split_index], sample_fit_parameters)
+        sample_minus = apply_fit_values(initial_stack, x_minus[:split_index], sample_fit_parameters)
+        measurement_plus = apply_measurement_fit_values(
+            measurement,
+            x_plus[split_index:],
+            measurement_fit_parameters,
+        )
+        measurement_minus = apply_measurement_fit_values(
+            measurement,
+            x_minus[split_index:],
+            measurement_fit_parameters,
+        )
         trace_plus = simulate_sample_from_reference(
             reference,
-            apply_fit_values(initial_stack, x_plus, fit_parameters),
+            sample_plus,
             max_internal_reflections=max_internal_reflections,
-            measurement=measurement,
+            measurement=measurement_plus,
         )["sample_trace"]
         trace_minus = simulate_sample_from_reference(
             reference,
-            apply_fit_values(initial_stack, x_minus, fit_parameters),
+            sample_minus,
             max_internal_reflections=max_internal_reflections,
-            measurement=measurement,
+            measurement=measurement_minus,
         )["sample_trace"]
         r_plus = _residual_vector(trace_plus, observed_trace)
         r_minus = _residual_vector(trace_minus, observed_trace)
@@ -251,21 +311,29 @@ def fit_sample_trace(
     max_internal_reflections=0,
     optimizer=None,
     measurement=None,
+    measurement_fit_parameters=None,
 ):
-    if not fit_parameters:
-        raise ValueError("fit_parameters must be non-empty")
+    sample_fit_parameters = list(fit_parameters)
+    measurement_fit_parameters = [] if measurement_fit_parameters is None else list(measurement_fit_parameters)
+    if not sample_fit_parameters and not measurement_fit_parameters:
+        raise ValueError("fit_parameters and measurement_fit_parameters cannot both be empty")
     optimizer = {} if optimizer is None else dict(optimizer)
 
-    x0 = np.array([float(parameter.initial_value) for parameter in fit_parameters], dtype=np.float64)
-    bounds = [(float(parameter.bound_min), float(parameter.bound_max)) for parameter in fit_parameters]
+    all_fit_parameters = _all_fit_parameter_specs(sample_fit_parameters, measurement_fit_parameters)
+    x0 = np.array([float(parameter.initial_value) for parameter in all_fit_parameters], dtype=np.float64)
+    bounds = [(float(parameter.bound_min), float(parameter.bound_max)) for parameter in all_fit_parameters]
+    split_index = len(sample_fit_parameters)
 
     def objective(x):
-        stack_trial = apply_fit_values(initial_stack, x, fit_parameters)
+        sample_values = np.asarray(x[:split_index], dtype=np.float64)
+        measurement_values = np.asarray(x[split_index:], dtype=np.float64)
+        stack_trial = apply_fit_values(initial_stack, sample_values, sample_fit_parameters)
+        measurement_trial = apply_measurement_fit_values(measurement, measurement_values, measurement_fit_parameters)
         simulated = simulate_sample_from_reference(
             reference,
             stack_trial,
             max_internal_reflections=max_internal_reflections,
-            measurement=measurement,
+            measurement=measurement_trial,
         )
         return objective_metric_value(simulated["sample_trace"], observed_trace, metric)
 
@@ -305,12 +373,17 @@ def fit_sample_trace(
         nit = int(getattr(de_result, "nit", -1))
         objective_value = float(de_result.fun)
 
-    fitted_stack = apply_fit_values(initial_stack, x_opt, fit_parameters)
+    fitted_stack = apply_fit_values(initial_stack, x_opt[:split_index], sample_fit_parameters)
+    fitted_measurement = apply_measurement_fit_values(
+        measurement,
+        x_opt[split_index:],
+        measurement_fit_parameters,
+    )
     fitted_simulation = simulate_sample_from_reference(
         reference,
         fitted_stack,
         max_internal_reflections=max_internal_reflections,
-        measurement=measurement,
+        measurement=fitted_measurement,
     )
     fitted_trace = np.asarray(fitted_simulation["sample_trace"], dtype=np.float64)
     observed_trace = np.asarray(observed_trace, dtype=np.float64)
@@ -321,7 +394,8 @@ def fit_sample_trace(
         reference=reference,
         observed_trace=observed_trace,
         initial_stack=initial_stack,
-        fit_parameters=fit_parameters,
+        fit_parameters=sample_fit_parameters,
+        measurement_fit_parameters=measurement_fit_parameters,
         max_internal_reflections=max_internal_reflections,
         measurement=measurement,
         rel_step=float(optimizer.get("fd_rel_step", 1e-5)),
@@ -329,9 +403,9 @@ def fit_sample_trace(
     correlation = _correlation_from_covariance(covariance, sigmas)
     max_abs_corr, mean_abs_corr = _correlation_summary(correlation)
 
-    parameter_names = [parameter.key for parameter in fit_parameters]
+    parameter_names = [parameter.key for parameter in all_fit_parameters]
     sigma_map = None if sigmas is None else {
-        parameter.key: float(sigma) for parameter, sigma in zip(fit_parameters, sigmas, strict=True)
+        parameter.key: float(sigma) for parameter, sigma in zip(all_fit_parameters, sigmas, strict=True)
     }
 
     return {
@@ -348,7 +422,7 @@ def fit_sample_trace(
         "metric": metric,
         "parameter_names": parameter_names,
         "recovered_parameters": {
-            parameter.key: float(value) for parameter, value in zip(fit_parameters, x_opt, strict=True)
+            parameter.key: float(value) for parameter, value in zip(all_fit_parameters, x_opt, strict=True)
         },
         "parameter_sigmas": sigma_map,
         "parameter_covariance": covariance,
@@ -356,6 +430,17 @@ def fit_sample_trace(
         "max_abs_parameter_correlation": max_abs_corr,
         "mean_abs_parameter_correlation": mean_abs_corr,
         "fitted_stack": fitted_stack,
+        "fitted_measurement": {
+            "mode": fitted_measurement.mode,
+            "angle_deg": float(fitted_measurement.angle_deg),
+            "polarization": fitted_measurement.polarization,
+            "polarization_mix": None
+            if fitted_measurement.polarization_mix is None
+            else float(fitted_measurement.polarization_mix),
+            "reference_standard_kind": None
+            if fitted_measurement.reference_standard is None
+            else fitted_measurement.reference_standard.kind,
+        },
         "fitted_simulation": fitted_simulation,
         "residual_trace": residual,
         "residual_metrics": {

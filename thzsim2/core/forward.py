@@ -7,6 +7,13 @@ import numpy as np
 from thzsim2.core.fft import fft_t_to_w, ifft_w_to_t
 from thzsim2.core.transfer import stack_response_function
 from thzsim2.models import Measurement, ReferenceResult, ReferenceStandard, SampleResult, TraceData
+from thzsim2.models.fit import Fit
+
+
+def _resolved_measurement_scalar(value, *, field_name: str):
+    if isinstance(value, Fit):
+        raise TypeError(f"{field_name} must be resolved to a numeric value before simulation")
+    return float(value)
 
 
 def normalize_measurement(measurement) -> Measurement:
@@ -27,6 +34,14 @@ def normalize_measurement(measurement) -> Measurement:
             measurement.reference_standard = ReferenceStandard(kind="identity")
         else:
             raise ValueError("reflection measurements require an explicit reference_standard")
+    measurement.angle_deg = _resolved_measurement_scalar(measurement.angle_deg, field_name="angle_deg")
+    if measurement.polarization == "mixed":
+        measurement.polarization_mix = _resolved_measurement_scalar(
+            0.5 if measurement.polarization_mix is None else measurement.polarization_mix,
+            field_name="polarization_mix",
+        )
+    elif measurement.polarization_mix is not None and isinstance(measurement.polarization_mix, Fit):
+        raise TypeError("polarization_mix must be resolved to a numeric value before simulation")
     return measurement
 
 
@@ -50,6 +65,7 @@ def _measurement_record(measurement: Measurement):
         "mode": measurement.mode,
         "angle_deg": float(measurement.angle_deg),
         "polarization": measurement.polarization,
+        "polarization_mix": None if measurement.polarization_mix is None else float(measurement.polarization_mix),
         "reference_standard_kind": measurement.reference_standard.kind if measurement.reference_standard else None,
     }
 
@@ -81,6 +97,7 @@ def simulate_sample_from_reference(
         max_internal_reflections=max_internal_reflections,
         angle_deg=measurement.angle_deg,
         polarization=measurement.polarization,
+        polarization_mix=measurement.polarization_mix,
         mode=measurement.mode,
     )
 
@@ -94,6 +111,7 @@ def simulate_sample_from_reference(
             max_internal_reflections=max_internal_reflections,
             angle_deg=measurement.angle_deg,
             polarization=measurement.polarization,
+            polarization_mix=measurement.polarization_mix,
             mode=measurement.mode,
         )
         _validate_reference_standard_response(reference_standard_response)
