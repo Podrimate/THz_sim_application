@@ -15,9 +15,7 @@ The repository now includes three Google Colab friendly user notebooks:
 Study and simulation notebook for arbitrary samples, measurement setups, and parameter sweeps.
 
 - GitHub: [notebooks/THzSim_User_Workflow.ipynb](notebooks/THzSim_User_Workflow.ipynb)
-- Colab: [Open THzSim_User_Workflow in Colab](https://colab.research.google.com/github/Podrimate/THz_sim_application/blob/main/notebooks/THzSim_User_Workflow.ipynb)
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Podrimate/THz_sim_application/blob/main/notebooks/THzSim_User_Workflow.ipynb)
+- Colab: [Open THzSim_User_Workflow in Colab](https://colab.research.google.com/github/Podrimate/THz_sim_application/blob/main/notebooks/THzSim_User_Workflow.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Podrimate/THz_sim_application/blob/main/notebooks/THzSim_User_Workflow.ipynb)
 
 This notebook is structured to:
 
