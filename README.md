@@ -66,7 +66,7 @@ This notebook explains:
 All notebooks install the package automatically from this repository when they run inside Colab:
 
 ```python
-!pip install --upgrade --force-reinstall --no-cache-dir git+https://github.com/Podrimate/THz_sim_application.git
+!pip install --upgrade --force-reinstall --no-cache-dir https://github.com/Podrimate/THz_sim_application/archive/refs/heads/main.zip
 ```
 
 The sharing flow is:
@@ -74,6 +74,8 @@ The sharing flow is:
 1. open one of the Colab links above
 2. run the install cell
 3. run the remaining notebook cells
+
+If Colab has a stale runtime, use `Runtime -> Restart runtime` and then rerun the first cell.
 
 ## Review Files
 

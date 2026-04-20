@@ -1,5 +1,7 @@
 """Notebook-friendly THz-TDS simulation package."""
 
+__version__ = "0.1.1"
+
 from .models import (
     ConstantNK,
     Drude,
