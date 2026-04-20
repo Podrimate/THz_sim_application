@@ -424,6 +424,9 @@ def _summary_row(case_id, replicate_id, seed, assignments, true_stack, sample, f
         row["measurement_mode"] = measurement.mode
         row["measurement_angle_deg"] = float(measurement.angle_deg)
         row["measurement_polarization"] = measurement.polarization
+        row["measurement_polarization_mix"] = (
+            float(measurement.polarization_mix) if measurement.polarization_mix is not None else np.nan
+        )
     row.update(assignments)
 
     for fit_parameter in sample.fit_parameters:
@@ -559,6 +562,42 @@ def plot_study_summary(summary_source, *, x_key, y_key, value_key, output_path=N
     return fig, ax
 
 
+def show_study_heatmaps(study_result, *, contains=None, max_images=None, columns=3, display=True):
+    heatmaps = []
+    for name, path in study_result.artifact_paths.items():
+        if not str(name).endswith("_plot"):
+            continue
+        if contains is not None and contains not in str(name):
+            continue
+        heatmaps.append((name, Path(path)))
+    heatmaps = sorted(heatmaps)
+    if max_images is not None:
+        heatmaps = heatmaps[: int(max_images)]
+    if not heatmaps:
+        return None, np.asarray([], dtype=object)
+
+    columns = max(1, int(columns))
+    rows = (len(heatmaps) + columns - 1) // columns
+    fig, axes = plt.subplots(rows, columns, figsize=(5.5 * columns, 4.5 * rows))
+    axes = np.atleast_1d(axes).ravel()
+    for ax, (name, path) in zip(axes, heatmaps, strict=False):
+        image = plt.imread(path)
+        ax.imshow(image)
+        ax.set_title(str(name).replace("_plot", ""), fontsize=10)
+        ax.axis("off")
+    for ax in axes[len(heatmaps) :]:
+        ax.axis("off")
+    fig.tight_layout()
+    if display:
+        try:
+            from IPython.display import display as ipy_display
+
+            ipy_display(fig)
+        except Exception:
+            pass
+    return fig, axes
+
+
 def plot_best_and_worst_case(study_result: StudyResult, *, metric_key="mse", output_path=None):
     rows = list(study_result.summary_rows)
     best_row = min(rows, key=lambda row: float(row[metric_key]))
@@ -690,6 +729,9 @@ def run_study(reference, sample, study, *, measurement=None, out_dir=None):
         "mode": measurement.mode,
         "angle_deg": float(measurement.angle_deg),
         "polarization": measurement.polarization,
+        "polarization_mix": None
+        if measurement.polarization_mix is None
+        else float(measurement.polarization_mix),
         "reference_standard_kind": measurement.reference_standard.kind if measurement.reference_standard else None,
     }
     write_json(config_path, config_payload)

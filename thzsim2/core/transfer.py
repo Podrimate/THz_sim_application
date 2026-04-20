@@ -29,11 +29,25 @@ def _as_complex_array(x, name: str, shape=None):
     return arr
 
 
-def _normalize_polarization(polarization: str):
+def _normalize_branch_polarization(polarization: str):
     pol = str(polarization).strip().lower()
     if pol not in {"s", "p"}:
         raise ValueError("polarization must be 's' or 'p'")
     return pol
+
+
+def _normalize_polarization_mode(polarization: str):
+    pol = str(polarization).strip().lower()
+    if pol not in {"s", "p", "mixed"}:
+        raise ValueError("polarization must be 's', 'p', or 'mixed'")
+    return pol
+
+
+def _normalize_polarization_mix(polarization_mix):
+    mix = float(0.5 if polarization_mix is None else polarization_mix)
+    if not (0.0 <= mix <= 1.0):
+        raise ValueError("polarization_mix must be between 0 and 1")
+    return mix
 
 
 def _normalize_mode(mode: str):
@@ -56,7 +70,7 @@ def fresnel_r(nj, nk):
 
 
 def fresnel_t_oblique(nj, nk, cos_j, cos_k, *, polarization="s"):
-    pol = _normalize_polarization(polarization)
+    pol = _normalize_branch_polarization(polarization)
     nj = np.asarray(nj, dtype=np.complex128)
     nk = np.asarray(nk, dtype=np.complex128)
     cos_j = np.asarray(cos_j, dtype=np.complex128)
@@ -69,7 +83,7 @@ def fresnel_t_oblique(nj, nk, cos_j, cos_k, *, polarization="s"):
 
 
 def fresnel_r_oblique(nj, nk, cos_j, cos_k, *, polarization="s"):
-    pol = _normalize_polarization(polarization)
+    pol = _normalize_branch_polarization(polarization)
     nj = np.asarray(nj, dtype=np.complex128)
     nk = np.asarray(nk, dtype=np.complex128)
     cos_j = np.asarray(cos_j, dtype=np.complex128)
@@ -166,7 +180,7 @@ def _interface_matrix(nj, nk, cos_j, cos_k, *, polarization):
 
 
 def _physical_response(response, *, polarization, mode):
-    if _normalize_mode(mode) == "reflection" and _normalize_polarization(polarization) == "p":
+    if _normalize_mode(mode) == "reflection" and _normalize_branch_polarization(polarization) == "p":
         return -np.asarray(response, dtype=np.complex128)
     return np.asarray(response, dtype=np.complex128)
 
@@ -237,12 +251,41 @@ def _medium_stack_response_positive(
     *,
     angle_deg=0.0,
     polarization="s",
+    polarization_mix=None,
     mode="transmission",
     max_internal_reflections=0,
 ):
     omega = _as_1d_array(omega_rad_s, "omega_rad_s")
-    pol = _normalize_polarization(polarization)
+    pol_mode = _normalize_polarization_mode(polarization)
     mode = _normalize_mode(mode)
+
+    if pol_mode == "mixed":
+        mix = _normalize_polarization_mix(polarization_mix)
+        response_s = _medium_stack_response_positive(
+            omega,
+            n_list,
+            thicknesses_m,
+            angle_deg=angle_deg,
+            polarization="s",
+            polarization_mix=None,
+            mode=mode,
+            max_internal_reflections=max_internal_reflections,
+        )
+        response_p = _medium_stack_response_positive(
+            omega,
+            n_list,
+            thicknesses_m,
+            angle_deg=angle_deg,
+            polarization="p",
+            polarization_mix=None,
+            mode=mode,
+            max_internal_reflections=max_internal_reflections,
+        )
+        return mix * np.asarray(response_p, dtype=np.complex128) + (1.0 - mix) * np.asarray(
+            response_s,
+            dtype=np.complex128,
+        )
+    pol = _normalize_branch_polarization(pol_mode)
 
     if len(n_list) != len(thicknesses_m) + 2:
         raise ValueError("len(n_list) must equal len(thicknesses_m) + 2")
@@ -323,6 +366,7 @@ def single_layer_transfer(
     *,
     angle_deg=0.0,
     polarization="s",
+    polarization_mix=None,
     mode="transmission",
 ):
     omega = _as_1d_array(omega_rad_s, "omega_rad_s")
@@ -336,6 +380,7 @@ def single_layer_transfer(
             [],
             angle_deg=angle_deg,
             polarization=polarization,
+            polarization_mix=polarization_mix,
             mode=mode,
             max_internal_reflections=max_internal_reflections,
         )
@@ -345,6 +390,7 @@ def single_layer_transfer(
         [thickness_m],
         angle_deg=angle_deg,
         polarization=polarization,
+        polarization_mix=polarization_mix,
         mode=mode,
         max_internal_reflections=max_internal_reflections,
     )
@@ -358,6 +404,7 @@ def multilayer_transfer(
     *,
     angle_deg=0.0,
     polarization="s",
+    polarization_mix=None,
     mode="transmission",
 ):
     omega = _as_1d_array(omega_rad_s, "omega_rad_s")
@@ -367,6 +414,7 @@ def multilayer_transfer(
         thicknesses_m,
         angle_deg=angle_deg,
         polarization=polarization,
+        polarization_mix=polarization_mix,
         mode=mode,
         max_internal_reflections=max_internal_reflections,
     )
@@ -448,6 +496,7 @@ def stack_response_function(
     *,
     angle_deg=0.0,
     polarization="s",
+    polarization_mix=None,
     mode="transmission",
 ):
     omega = _as_1d_array(omega_rad_s, "omega_rad_s")
@@ -468,6 +517,7 @@ def stack_response_function(
         max_internal_reflections=max_internal_reflections,
         angle_deg=angle_deg,
         polarization=polarization,
+        polarization_mix=polarization_mix,
         mode=mode,
     )
     out = np.asarray(response, dtype=np.complex128)
@@ -485,6 +535,7 @@ def stack_transfer_function(
     *,
     angle_deg=0.0,
     polarization="s",
+    polarization_mix=None,
     mode="transmission",
 ):
     return stack_response_function(
@@ -493,5 +544,6 @@ def stack_transfer_function(
         max_internal_reflections=max_internal_reflections,
         angle_deg=angle_deg,
         polarization=polarization,
+        polarization_mix=polarization_mix,
         mode=mode,
     )
