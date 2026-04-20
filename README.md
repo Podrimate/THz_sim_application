@@ -66,7 +66,7 @@ This notebook explains:
 All notebooks install the package automatically from this repository when they run inside Colab:
 
 ```python
-!pip install git+https://github.com/Podrimate/THz_sim_application.git
+!pip install --upgrade --force-reinstall --no-cache-dir git+https://github.com/Podrimate/THz_sim_application.git
 ```
 
 The sharing flow is:
