@@ -599,11 +599,12 @@ def run_measured_fit(
     out_dir,
     measurement=None,
     optimizer=None,
-    metric="mse",
+    metric="data_fit",
     max_internal_reflections=0,
     n_in=1.0,
     n_out=1.0,
     overlay_imported=True,
+    delay_options=None,
 ):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -632,6 +633,7 @@ def run_measured_fit(
         max_internal_reflections=max_internal_reflections,
         optimizer=optimizer,
         measurement=resolved_measurement,
+        delay_options=delay_options,
     )
 
     fit_dir = reference_result.run_dir / "measured_fit"
@@ -639,6 +641,7 @@ def run_measured_fit(
 
     processed_reference_csv = fit_dir / "processed_reference_trace.csv"
     processed_sample_csv = fit_dir / "processed_sample_trace.csv"
+    initial_trace_csv = fit_dir / "initial_sample_trace.csv"
     fitted_trace_csv = fit_dir / "fitted_sample_trace.csv"
     residual_trace_csv = fit_dir / "residual_trace.csv"
     summary_json = fit_dir / "measured_fit_summary.json"
@@ -646,6 +649,10 @@ def run_measured_fit(
 
     write_trace_csv(processed_reference_csv, prepared_traces.processed_reference)
     write_trace_csv(processed_sample_csv, prepared_traces.processed_sample)
+    write_trace_csv(
+        initial_trace_csv,
+        prepared_traces.processed_sample.with_trace(fit_result["initial_simulation"]["sample_trace"]),
+    )
     write_trace_csv(
         fitted_trace_csv,
         prepared_traces.processed_sample.with_trace(fit_result["fitted_simulation"]["sample_trace"]),
@@ -659,10 +666,13 @@ def run_measured_fit(
         summary_json,
         {
             "measurement": fit_result["fitted_measurement"],
+            "delay_recovery": fit_result["delay_recovery"],
             "recovered_parameters": fit_result["recovered_parameters"],
             "parameter_sigmas": fit_result["parameter_sigmas"],
             "objective_value": float(fit_result["objective_value"]),
+            "initial_objective_value": float(fit_result["initial_objective_value"]),
             "metric": str(fit_result["metric"]),
+            "initial_residual_metrics": deepcopy(fit_result["initial_residual_metrics"]),
             "residual_metrics": deepcopy(fit_result["residual_metrics"]),
         },
     )
@@ -677,6 +687,7 @@ def run_measured_fit(
         artifact_paths={
             "processed_reference_trace_csv": processed_reference_csv,
             "processed_sample_trace_csv": processed_sample_csv,
+            "initial_sample_trace_csv": initial_trace_csv,
             "fitted_sample_trace_csv": fitted_trace_csv,
             "residual_trace_csv": residual_trace_csv,
             "measured_fit_summary_json": summary_json,
@@ -687,5 +698,6 @@ def run_measured_fit(
             "n_out": float(n_out),
             "metric": str(metric),
             "max_internal_reflections": int(max_internal_reflections),
+            "delay_options": None if delay_options is None else deepcopy(delay_options),
         },
     )

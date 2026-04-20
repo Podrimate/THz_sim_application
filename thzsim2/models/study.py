@@ -15,6 +15,8 @@ class StudyCaseResult:
     success: bool
     objective_value: float
     metric_value: float
+    summary_row: dict[str, Any] = field(default_factory=dict)
+    artifact_paths: dict[str, Path] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

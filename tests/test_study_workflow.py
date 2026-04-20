@@ -251,6 +251,74 @@ def test_run_study_supports_arbitrary_sample_truth_paths_and_measurement(tmp_pat
     assert config["measurement"]["reference_standard_kind"] == "identity"
 
 
+def test_run_study_recovers_easy_low_noise_drude_case_and_exports_new_metrics(tmp_path):
+    reference_result = prepare_reference(
+        generate_reference_pulse(
+            model="sech_carrier",
+            sample_count=1024,
+            dt_ps=0.03,
+            time_center_ps=20.0,
+            pulse_center_ps=10.0,
+            tau_ps=0.22,
+            f0_thz=0.9,
+            amp=1.0,
+            phi_rad=0.0,
+        ),
+        output_root=tmp_path,
+        run_label="study-low-noise",
+    )
+    sample_result = build_sample(
+        layers=[
+            Layer(
+                name="drude_film",
+                thickness_um=Fit(550.0, abs_min=450.0, abs_max=650.0, label="film_thickness_um"),
+                material=Drude(
+                    eps_inf=12.0,
+                    plasma_freq_thz=Fit(1.1, abs_min=0.7, abs_max=1.5, label="film_plasma_freq_thz"),
+                    gamma_thz=Fit(0.9, abs_min=0.4, abs_max=1.2, label="film_gamma_thz"),
+                ),
+            )
+        ],
+        reference=reference_result,
+        out_dir=reference_result.run_dir / "sample",
+    )
+
+    study_result = run_study(
+        reference_result,
+        sample_result,
+        {
+            "truth": {
+                "layers[0].thickness_um": 550.0,
+                "layers[0].material.plasma_freq_thz": 1.2,
+                "layers[0].material.gamma_thz": 0.8,
+            },
+            "noise_dynamic_range_db": 120.0,
+            "replicates": 1,
+            "seed": 123,
+            "metric": "data_fit",
+            "optimizer": {
+                "method": "L-BFGS-B",
+                "options": {"maxiter": 120},
+                "global_options": {"maxiter": 8, "popsize": 8, "seed": 123},
+                "fd_rel_step": 1e-5,
+            },
+        },
+        out_dir=tmp_path / "study_outputs",
+    )
+
+    assert len(study_result.summary_rows) == 1
+    row = study_result.summary_rows[0]
+    assert row["data_fit"] < 1e-6
+    assert row["fit_sigma"] < 1e-3
+    assert row["fit__film_thickness_um"] == pytest.approx(550.0, abs=0.1)
+    assert row["fit__film_plasma_freq_thz"] == pytest.approx(1.2, abs=1e-3)
+    assert row["fit__film_gamma_thz"] == pytest.approx(0.8, abs=1e-3)
+    assert row["signed_err__film_thickness_um"] == pytest.approx(0.0, abs=0.1)
+    assert row["signed_err__film_plasma_freq_thz"] == pytest.approx(0.0, abs=1e-3)
+    assert row["signed_err__film_gamma_thz"] == pytest.approx(0.0, abs=1e-3)
+    assert study_result.case_results[0].artifact_paths["noise_trace"].exists()
+
+
 def test_run_study_supports_reflection_with_explicit_reference_standard(tmp_path):
     reference_result = _reference_result(tmp_path)
     reference_standard = build_sample(

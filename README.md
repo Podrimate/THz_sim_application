@@ -1,86 +1,75 @@
 # THz_sim_application
 
-THz time-domain simulation and fitting for arbitrary isotropic multilayer samples.
+THz time-domain simulation, fitting, and study workflows for arbitrary isotropic multilayer samples.
 
-The repository now includes three Google Colab friendly user notebooks:
+The repository is centered on two Google Colab friendly notebooks:
 
-- simulation and study generation
-- measured reference/sample fitting
-- a visual guide that explains the main plots and outputs
+- `THzSim_User_Workflow.ipynb` for synthetic reference generation, arbitrary sample definition, parameter sweeps, study execution, and heatmap-based study inspection
+- `THzFit_User_Workflow.ipynb` for measured reference/sample fitting with visible preprocessing, fit overlays, residuals, FFT comparisons, and saved setup snapshots
+
+Both notebooks are now code-cell-driven. The user edits normal Python cells with inline explanations instead of a JSON-first interface.
 
 ## Notebooks
 
 ### THzSim User Workflow
 
-Study and simulation notebook for arbitrary samples, measurement setups, and parameter sweeps.
-
 - GitHub: [notebooks/THzSim_User_Workflow.ipynb](notebooks/THzSim_User_Workflow.ipynb)
 - Colab: [Open THzSim_User_Workflow in Colab](https://colab.research.google.com/github/Podrimate/THz_sim_application/blob/main/notebooks/THzSim_User_Workflow.ipynb)  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Podrimate/THz_sim_application/blob/main/notebooks/THzSim_User_Workflow.ipynb)
 
-This notebook is structured to:
+This notebook is organized into six main parts:
 
-1. define the measurement and reference setup
-2. define an arbitrary sample and study sweep
-3. write the setup into both `study_setup.json` and the legacy CSV file
-4. rerun the study from the JSON file alone
-5. generate heatmaps for `normalized_mse`, `relative_l2`, and `true - fit`
+1. install and import
+2. run setup plus uploaded or generated reference trace preview
+3. sample stack definition plus time-domain and FFT preview against the reference
+4. study setup, noise preview, runtime estimate, and saved setup snapshots
+5. study execution with progress output
+6. interactive-style study plotting by chosen x axis, y axis, and heatmap value
 
 ### THzFit User Workflow
-
-Measured-data fitting notebook for uploaded reference/sample traces in transmission or reflection.
 
 - GitHub: [notebooks/THzFit_User_Workflow.ipynb](notebooks/THzFit_User_Workflow.ipynb)
 - Colab: [Open THzFit_User_Workflow in Colab](https://colab.research.google.com/github/Podrimate/THz_sim_application/blob/main/notebooks/THzFit_User_Workflow.ipynb)  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Podrimate/THz_sim_application/blob/main/notebooks/THzFit_User_Workflow.ipynb)
 
-This notebook is structured to:
+This notebook walks through:
 
-1. upload or select measured reference and sample CSV files
-2. preview raw, aligned, and processed traces
-3. define an arbitrary isotropic multilayer sample
-4. export a reusable `fit_setup.json`
-5. fit sample and optional measurement parameters
-6. inspect fitted traces, residuals, and recovered parameters
-
-### THz User Visual Guide
-
-Visual explanation notebook for the preprocessing, fitting, and study plots.
-
-- GitHub: [notebooks/THz_User_Visual_Guide.ipynb](notebooks/THz_User_Visual_Guide.ipynb)
-- Colab: [Open THz_User_Visual_Guide in Colab](https://colab.research.google.com/github/Podrimate/THz_sim_application/blob/main/notebooks/THz_User_Visual_Guide.ipynb)  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Podrimate/THz_sim_application/blob/main/notebooks/THz_User_Visual_Guide.ipynb)
-
-This notebook explains:
-
-1. what the preprocessing plot means
-2. what a good time-domain fit looks like
-3. how to read the residual and optical response plots
-4. how to interpret the study heatmaps
+1. install and import
+2. uploaded measured reference/sample selection and raw/prepared preview
+3. measurement settings with visible angle and polarization controls
+4. plain-Python sample-stack definition with built-in templates
+5. fit controls and saved setup snapshots
+6. fit execution plus overlay, residual, optical-response, and FFT comparison plots
 
 ## Google Colab
 
-All notebooks install the package automatically from this repository when they run inside Colab:
+Inside Colab, the first notebook cell installs the package directly from `main`:
 
 ```python
 !pip install --upgrade --force-reinstall --no-cache-dir --no-deps https://github.com/Podrimate/THz_sim_application/archive/refs/heads/main.zip
 ```
 
-The sharing flow is:
+Recommended usage:
 
 1. open one of the Colab links above
-2. run the install cell
-3. run the remaining notebook cells
+2. run the first install/import cell
+3. if Colab is stale, use `Runtime -> Factory reset runtime`
+4. run the remaining cells from top to bottom
 
-If Colab has a stale runtime, use `Runtime -> Factory reset runtime` and then rerun the first cell. This is especially important if you previously ran an older install cell that upgraded NumPy inside the live session.
+## Saved Outputs
 
-## Review Files
+Each notebook run writes outputs under a timestamped folder using the run name you provide:
 
-The main review/share files are:
+- synthetic studies write under `timestamp__run_name`
+- measured fits write under `timestamp__run_name`
 
-- `fit_setup.json` for measured fitting
-- `study_setup.json` for synthetic studies
+Saved artifacts include:
 
-Those JSON files preserve the exact user choices needed to rerun and inspect a workflow.
+- machine-readable setup snapshots such as `fit_setup.json` and `study_setup.json`
+- human-readable Python snapshots of the edited notebook settings
+- trace CSV files
+- fit summaries, study summaries, and manifests
+- generated plots and heatmaps
 
-## Local install
+## Local Install
 
 ```bash
 pip install -e .

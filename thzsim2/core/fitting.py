@@ -5,12 +5,26 @@ import re
 
 import numpy as np
 from scipy.optimize import differential_evolution, minimize
+from scipy.signal import correlate, correlation_lags
 
 from thzsim2.core.forward import simulate_sample_from_reference
-from thzsim2.core.metrics import mse, relative_l2, snr_db
+from thzsim2.core.metrics import data_fit, fit_sigma, mse, normalized_mse, relative_l2, residual_rms, snr_db
 from thzsim2.models import Measurement, ResolvedMeasurementFitParameter
 
 EPS0 = 8.8541878128e-12
+
+
+class _ScalarFitSpec:
+    __slots__ = ("key", "label", "path", "unit", "initial_value", "bound_min", "bound_max")
+
+    def __init__(self, *, key, label, path, unit, initial_value, bound_min, bound_max):
+        self.key = str(key)
+        self.label = str(label)
+        self.path = str(path)
+        self.unit = str(unit)
+        self.initial_value = float(initial_value)
+        self.bound_min = float(bound_min)
+        self.bound_max = float(bound_max)
 
 
 def _parse_path(path: str):
@@ -103,11 +117,92 @@ def _all_fit_parameter_specs(sample_fit_parameters, measurement_fit_parameters):
 
 
 def objective_metric_value(y_model, y_true, metric: str) -> float:
+    if metric == "data_fit":
+        return data_fit(y_model, y_true)
     if metric == "mse":
         return mse(y_model, y_true)
+    if metric == "normalized_mse":
+        return normalized_mse(y_model, y_true)
     if metric == "relative_l2":
         return relative_l2(y_model, y_true)
-    raise ValueError("metric must be 'mse' or 'relative_l2'")
+    raise ValueError("metric must be 'data_fit', 'mse', 'normalized_mse', or 'relative_l2'")
+
+
+def estimate_trace_delay_ps(model_trace, observed_trace, time_ps) -> float:
+    time_ps = np.asarray(time_ps, dtype=np.float64)
+    if time_ps.ndim != 1 or time_ps.size < 2:
+        raise ValueError("time_ps must contain at least two samples")
+    dt_ps = float(np.median(np.diff(time_ps)))
+    model = np.asarray(model_trace, dtype=np.float64)
+    observed = np.asarray(observed_trace, dtype=np.float64)
+    model = model - float(np.mean(model))
+    observed = observed - float(np.mean(observed))
+    corr = correlate(observed, model, mode="full", method="fft")
+    lags = correlation_lags(observed.size, model.size, mode="full")
+    best_lag = int(lags[int(np.argmax(corr))])
+    return float(best_lag) * dt_ps
+
+
+def shift_trace_in_time(trace, time_ps, delta_t_ps):
+    time_ps = np.asarray(time_ps, dtype=np.float64)
+    trace = np.asarray(trace, dtype=np.float64)
+    return np.interp(
+        time_ps - float(delta_t_ps),
+        time_ps,
+        trace,
+        left=0.0,
+        right=0.0,
+    )
+
+
+def _resolve_delay_fit_spec(
+    *,
+    delay_options,
+    reference,
+    observed_trace,
+    initial_stack,
+    measurement,
+    max_internal_reflections,
+):
+    if not delay_options or not bool(delay_options.get("enabled", False)):
+        return None, 0.0
+
+    initial_simulation = simulate_sample_from_reference(
+        reference,
+        initial_stack,
+        max_internal_reflections=max_internal_reflections,
+        measurement=measurement,
+    )
+    coarse_delay_ps = delay_options.get("initial_ps")
+    if coarse_delay_ps is None:
+        coarse_delay_ps = estimate_trace_delay_ps(
+            initial_simulation["sample_trace"],
+            observed_trace,
+            reference.trace.time_ps,
+        )
+    coarse_delay_ps = float(coarse_delay_ps)
+    search_window_ps = float(delay_options.get("search_window_ps", max(25.0, abs(coarse_delay_ps) * 0.5 + 10.0)))
+    bound_min = delay_options.get("abs_min")
+    bound_max = delay_options.get("abs_max")
+    if bound_min is None:
+        bound_min = coarse_delay_ps - search_window_ps
+    if bound_max is None:
+        bound_max = coarse_delay_ps + search_window_ps
+    if float(bound_max) <= float(bound_min):
+        raise ValueError("delay_options bounds must satisfy abs_max > abs_min")
+
+    return (
+        _ScalarFitSpec(
+            key=str(delay_options.get("label", "delta_t_ps")),
+            label=str(delay_options.get("label", "delta_t_ps")),
+            path="delta_t_ps",
+            unit="ps",
+            initial_value=coarse_delay_ps,
+            bound_min=float(bound_min),
+            bound_max=float(bound_max),
+        ),
+        coarse_delay_ps,
+    )
 
 
 def drude_gamma_thz_from_tau_ps(tau_ps: float) -> float:
@@ -217,6 +312,51 @@ def _correlation_summary(correlation):
     return float(np.max(values)), float(np.mean(values))
 
 
+def _split_fit_vector(x, sample_count, measurement_count, delay_parameter):
+    sample_values = np.asarray(x[:sample_count], dtype=np.float64)
+    measurement_values = np.asarray(x[sample_count : sample_count + measurement_count], dtype=np.float64)
+    delay_value = 0.0
+    if delay_parameter is not None:
+        delay_value = float(x[sample_count + measurement_count])
+    return sample_values, measurement_values, delay_value
+
+
+def _simulate_trial(
+    *,
+    x,
+    reference,
+    initial_stack,
+    sample_fit_parameters,
+    measurement,
+    measurement_fit_parameters,
+    delay_parameter,
+    max_internal_reflections,
+):
+    sample_count = len(sample_fit_parameters)
+    measurement_count = len(measurement_fit_parameters)
+    sample_values, measurement_values, delay_value = _split_fit_vector(
+        x,
+        sample_count,
+        measurement_count,
+        delay_parameter,
+    )
+    stack_trial = apply_fit_values(initial_stack, sample_values, sample_fit_parameters)
+    measurement_trial = apply_measurement_fit_values(measurement, measurement_values, measurement_fit_parameters)
+    simulated = simulate_sample_from_reference(
+        reference,
+        stack_trial,
+        max_internal_reflections=max_internal_reflections,
+        measurement=measurement_trial,
+    )
+    trace = np.asarray(simulated["sample_trace"], dtype=np.float64)
+    if delay_parameter is not None:
+        trace = shift_trace_in_time(trace, reference.trace.time_ps, delay_value)
+        simulated = dict(simulated)
+        simulated["sample_trace_unshifted"] = np.asarray(simulated["sample_trace"], dtype=np.float64)
+        simulated["sample_trace"] = trace
+    return simulated, stack_trial, measurement_trial, float(delay_value)
+
+
 def _estimate_parameter_sigmas(
     x_opt,
     *,
@@ -225,6 +365,7 @@ def _estimate_parameter_sigmas(
     initial_stack,
     fit_parameters,
     measurement_fit_parameters,
+    delay_parameter,
     max_internal_reflections,
     measurement,
     rel_step,
@@ -232,20 +373,20 @@ def _estimate_parameter_sigmas(
     sample_fit_parameters = list(fit_parameters)
     measurement_fit_parameters = list(measurement_fit_parameters)
     all_fit_parameters = _all_fit_parameter_specs(sample_fit_parameters, measurement_fit_parameters)
+    if delay_parameter is not None:
+        all_fit_parameters = all_fit_parameters + [delay_parameter]
     p = len(all_fit_parameters)
-    split_index = len(sample_fit_parameters)
-    fitted_stack = apply_fit_values(initial_stack, x_opt[:split_index], sample_fit_parameters)
-    fitted_measurement = apply_measurement_fit_values(
-        measurement,
-        x_opt[split_index:],
-        measurement_fit_parameters,
-    )
-    fitted_trace = simulate_sample_from_reference(
-        reference,
-        fitted_stack,
+    fitted_simulation, _, _, _ = _simulate_trial(
+        x=x_opt,
+        reference=reference,
+        initial_stack=initial_stack,
+        sample_fit_parameters=sample_fit_parameters,
+        measurement=measurement,
+        measurement_fit_parameters=measurement_fit_parameters,
+        delay_parameter=delay_parameter,
         max_internal_reflections=max_internal_reflections,
-        measurement=fitted_measurement,
-    )["sample_trace"]
+    )
+    fitted_trace = fitted_simulation["sample_trace"]
     residual0 = _residual_vector(fitted_trace, observed_trace)
     m = residual0.size
     if m <= p:
@@ -265,30 +406,26 @@ def _estimate_parameter_sigmas(
         if x_plus[index] == x_minus[index]:
             continue
 
-        sample_plus = apply_fit_values(initial_stack, x_plus[:split_index], sample_fit_parameters)
-        sample_minus = apply_fit_values(initial_stack, x_minus[:split_index], sample_fit_parameters)
-        measurement_plus = apply_measurement_fit_values(
-            measurement,
-            x_plus[split_index:],
-            measurement_fit_parameters,
-        )
-        measurement_minus = apply_measurement_fit_values(
-            measurement,
-            x_minus[split_index:],
-            measurement_fit_parameters,
-        )
-        trace_plus = simulate_sample_from_reference(
-            reference,
-            sample_plus,
+        trace_plus = _simulate_trial(
+            x=x_plus,
+            reference=reference,
+            initial_stack=initial_stack,
+            sample_fit_parameters=sample_fit_parameters,
+            measurement=measurement,
+            measurement_fit_parameters=measurement_fit_parameters,
+            delay_parameter=delay_parameter,
             max_internal_reflections=max_internal_reflections,
-            measurement=measurement_plus,
-        )["sample_trace"]
-        trace_minus = simulate_sample_from_reference(
-            reference,
-            sample_minus,
+        )[0]["sample_trace"]
+        trace_minus = _simulate_trial(
+            x=x_minus,
+            reference=reference,
+            initial_stack=initial_stack,
+            sample_fit_parameters=sample_fit_parameters,
+            measurement=measurement,
+            measurement_fit_parameters=measurement_fit_parameters,
+            delay_parameter=delay_parameter,
             max_internal_reflections=max_internal_reflections,
-            measurement=measurement_minus,
-        )["sample_trace"]
+        )[0]["sample_trace"]
         r_plus = _residual_vector(trace_plus, observed_trace)
         r_minus = _residual_vector(trace_minus, observed_trace)
         J[:, index] = (r_plus - r_minus) / (x_plus[index] - x_minus[index])
@@ -307,42 +444,67 @@ def fit_sample_trace(
     observed_trace,
     initial_stack,
     fit_parameters,
-    metric="mse",
+    metric="data_fit",
     max_internal_reflections=0,
     optimizer=None,
     measurement=None,
     measurement_fit_parameters=None,
+    delay_options=None,
 ):
     sample_fit_parameters = list(fit_parameters)
     measurement_fit_parameters = [] if measurement_fit_parameters is None else list(measurement_fit_parameters)
-    if not sample_fit_parameters and not measurement_fit_parameters:
-        raise ValueError("fit_parameters and measurement_fit_parameters cannot both be empty")
     optimizer = {} if optimizer is None else dict(optimizer)
+    observed_trace = np.asarray(observed_trace, dtype=np.float64)
+
+    delay_parameter, coarse_delay_ps = _resolve_delay_fit_spec(
+        delay_options=delay_options,
+        reference=reference,
+        observed_trace=observed_trace,
+        initial_stack=initial_stack,
+        measurement=measurement,
+        max_internal_reflections=max_internal_reflections,
+    )
+    if not sample_fit_parameters and not measurement_fit_parameters and delay_parameter is None:
+        raise ValueError("fit_parameters and measurement_fit_parameters cannot both be empty unless delay recovery is enabled")
 
     all_fit_parameters = _all_fit_parameter_specs(sample_fit_parameters, measurement_fit_parameters)
+    if delay_parameter is not None:
+        all_fit_parameters = all_fit_parameters + [delay_parameter]
     x0 = np.array([float(parameter.initial_value) for parameter in all_fit_parameters], dtype=np.float64)
     bounds = [(float(parameter.bound_min), float(parameter.bound_max)) for parameter in all_fit_parameters]
-    split_index = len(sample_fit_parameters)
+
+    initial_simulation, _, _, initial_delay_ps = _simulate_trial(
+        x=x0,
+        reference=reference,
+        initial_stack=initial_stack,
+        sample_fit_parameters=sample_fit_parameters,
+        measurement=measurement,
+        measurement_fit_parameters=measurement_fit_parameters,
+        delay_parameter=delay_parameter,
+        max_internal_reflections=max_internal_reflections,
+    )
+    initial_trace = np.asarray(initial_simulation["sample_trace"], dtype=np.float64)
+    initial_objective_value = objective_metric_value(initial_trace, observed_trace, metric)
 
     def objective(x):
-        sample_values = np.asarray(x[:split_index], dtype=np.float64)
-        measurement_values = np.asarray(x[split_index:], dtype=np.float64)
-        stack_trial = apply_fit_values(initial_stack, sample_values, sample_fit_parameters)
-        measurement_trial = apply_measurement_fit_values(measurement, measurement_values, measurement_fit_parameters)
-        simulated = simulate_sample_from_reference(
-            reference,
-            stack_trial,
+        simulated, _, _, _ = _simulate_trial(
+            x=x,
+            reference=reference,
+            initial_stack=initial_stack,
+            sample_fit_parameters=sample_fit_parameters,
+            measurement=measurement,
+            measurement_fit_parameters=measurement_fit_parameters,
+            delay_parameter=delay_parameter,
             max_internal_reflections=max_internal_reflections,
-            measurement=measurement_trial,
         )
         return objective_metric_value(simulated["sample_trace"], observed_trace, metric)
 
     global_options = {
         "seed": 123,
         "polish": False,
-        "maxiter": 4,
-        "popsize": 5,
-        "tol": 1e-6,
+        "maxiter": 12,
+        "popsize": 10,
+        "tol": 1e-7,
         "updating": "deferred",
     }
     global_options.update(dict(optimizer.get("global_options", {})))
@@ -353,40 +515,68 @@ def fit_sample_trace(
         np.asarray(de_result.x, dtype=np.float64),
         method=str(optimizer.get("method", "L-BFGS-B")),
         bounds=bounds,
-        options=dict(optimizer.get("options", {"maxiter": 35})),
+        options=dict(optimizer.get("options", {"maxiter": 120})),
     )
 
-    if np.isfinite(local_result.fun) and local_result.fun <= de_result.fun:
-        chosen = local_result
-        x_opt = np.asarray(local_result.x, dtype=np.float64)
-        status = int(local_result.status)
-        message = str(local_result.message)
-        nfev = int(local_result.nfev)
-        nit = int(getattr(local_result, "nit", -1))
-        objective_value = float(local_result.fun)
-    else:
-        chosen = de_result
-        x_opt = np.asarray(de_result.x, dtype=np.float64)
-        status = int(getattr(de_result, "status", 0))
-        message = str(de_result.message)
-        nfev = int(de_result.nfev)
-        nit = int(getattr(de_result, "nit", -1))
-        objective_value = float(de_result.fun)
+    candidates = [
+        {
+            "kind": "initial",
+            "x": np.asarray(x0, dtype=np.float64),
+            "objective_value": float(initial_objective_value),
+            "status": 0,
+            "message": "initial guess",
+            "nfev": 1,
+            "nit": 0,
+            "optimizer_result": None,
+        }
+    ]
+    if np.isfinite(de_result.fun):
+        candidates.append(
+            {
+                "kind": "global",
+                "x": np.asarray(de_result.x, dtype=np.float64),
+                "objective_value": float(de_result.fun),
+                "status": int(getattr(de_result, "status", 0)),
+                "message": str(de_result.message),
+                "nfev": int(de_result.nfev),
+                "nit": int(getattr(de_result, "nit", -1)),
+                "optimizer_result": de_result,
+            }
+        )
+    if np.isfinite(local_result.fun):
+        candidates.append(
+            {
+                "kind": "local",
+                "x": np.asarray(local_result.x, dtype=np.float64),
+                "objective_value": float(local_result.fun),
+                "status": int(local_result.status),
+                "message": str(local_result.message),
+                "nfev": int(local_result.nfev),
+                "nit": int(getattr(local_result, "nit", -1)),
+                "optimizer_result": local_result,
+            }
+        )
 
-    fitted_stack = apply_fit_values(initial_stack, x_opt[:split_index], sample_fit_parameters)
-    fitted_measurement = apply_measurement_fit_values(
-        measurement,
-        x_opt[split_index:],
-        measurement_fit_parameters,
-    )
-    fitted_simulation = simulate_sample_from_reference(
-        reference,
-        fitted_stack,
+    best = min(candidates, key=lambda candidate: candidate["objective_value"])
+    chosen = best["optimizer_result"]
+    x_opt = np.asarray(best["x"], dtype=np.float64)
+    status = int(best["status"])
+    message = str(best["message"])
+    nfev = int(best["nfev"])
+    nit = int(best["nit"])
+    objective_value = float(best["objective_value"])
+
+    fitted_simulation, fitted_stack, fitted_measurement, fitted_delay_ps = _simulate_trial(
+        x=x_opt,
+        reference=reference,
+        initial_stack=initial_stack,
+        sample_fit_parameters=sample_fit_parameters,
+        measurement=measurement,
+        measurement_fit_parameters=measurement_fit_parameters,
+        delay_parameter=delay_parameter,
         max_internal_reflections=max_internal_reflections,
-        measurement=fitted_measurement,
     )
     fitted_trace = np.asarray(fitted_simulation["sample_trace"], dtype=np.float64)
-    observed_trace = np.asarray(observed_trace, dtype=np.float64)
     residual = observed_trace - fitted_trace
 
     covariance, sigmas = _estimate_parameter_sigmas(
@@ -396,6 +586,7 @@ def fit_sample_trace(
         initial_stack=initial_stack,
         fit_parameters=sample_fit_parameters,
         measurement_fit_parameters=measurement_fit_parameters,
+        delay_parameter=delay_parameter,
         max_internal_reflections=max_internal_reflections,
         measurement=measurement,
         rel_step=float(optimizer.get("fd_rel_step", 1e-5)),
@@ -407,6 +598,28 @@ def fit_sample_trace(
     sigma_map = None if sigmas is None else {
         parameter.key: float(sigma) for parameter, sigma in zip(all_fit_parameters, sigmas, strict=True)
     }
+    residual_metrics = {
+        "data_fit": data_fit(fitted_trace, observed_trace),
+        "mse": mse(fitted_trace, observed_trace),
+        "normalized_mse": normalized_mse(fitted_trace, observed_trace),
+        "relative_l2": relative_l2(fitted_trace, observed_trace),
+        "residual_rms": residual_rms(fitted_trace, observed_trace),
+        "fit_sigma": fit_sigma(fitted_trace, observed_trace),
+        "snr_db": snr_db(observed_trace, residual),
+    }
+    initial_residual = observed_trace - initial_trace
+    initial_residual_metrics = {
+        "data_fit": data_fit(initial_trace, observed_trace),
+        "mse": mse(initial_trace, observed_trace),
+        "normalized_mse": normalized_mse(initial_trace, observed_trace),
+        "relative_l2": relative_l2(initial_trace, observed_trace),
+        "residual_rms": residual_rms(initial_trace, observed_trace),
+        "fit_sigma": fit_sigma(initial_trace, observed_trace),
+        "snr_db": snr_db(observed_trace, initial_residual),
+    }
+    recovered_parameters = {
+        parameter.key: float(value) for parameter, value in zip(all_fit_parameters, x_opt, strict=True)
+    }
 
     return {
         "success": bool(np.isfinite(objective_value) and all(lo <= xi <= hi for xi, (lo, hi) in zip(x_opt, bounds, strict=True))),
@@ -415,20 +628,21 @@ def fit_sample_trace(
         "nfev": nfev,
         "nit": nit,
         "optimizer_result": chosen,
+        "optimizer_stage": best["kind"],
         "objective_value": objective_value,
         "x0": x0,
         "x_opt": x_opt,
         "bounds": bounds,
         "metric": metric,
         "parameter_names": parameter_names,
-        "recovered_parameters": {
-            parameter.key: float(value) for parameter, value in zip(all_fit_parameters, x_opt, strict=True)
-        },
+        "recovered_parameters": recovered_parameters,
         "parameter_sigmas": sigma_map,
         "parameter_covariance": covariance,
         "parameter_correlation": correlation,
         "max_abs_parameter_correlation": max_abs_corr,
         "mean_abs_parameter_correlation": mean_abs_corr,
+        "initial_objective_value": float(initial_objective_value),
+        "initial_residual_metrics": initial_residual_metrics,
         "fitted_stack": fitted_stack,
         "fitted_measurement": {
             "mode": fitted_measurement.mode,
@@ -441,11 +655,14 @@ def fit_sample_trace(
             if fitted_measurement.reference_standard is None
             else fitted_measurement.reference_standard.kind,
         },
+        "delay_recovery": {
+            "enabled": delay_parameter is not None,
+            "coarse_delay_ps": None if delay_parameter is None else float(coarse_delay_ps),
+            "initial_delay_ps": None if delay_parameter is None else float(initial_delay_ps),
+            "fitted_delay_ps": None if delay_parameter is None else float(fitted_delay_ps),
+        },
+        "initial_simulation": initial_simulation,
         "fitted_simulation": fitted_simulation,
         "residual_trace": residual,
-        "residual_metrics": {
-            "mse": mse(fitted_trace, observed_trace),
-            "relative_l2": relative_l2(fitted_trace, observed_trace),
-            "snr_db": snr_db(observed_trace, residual),
-        },
+        "residual_metrics": residual_metrics,
     }

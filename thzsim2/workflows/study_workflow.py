@@ -234,15 +234,15 @@ def _normalize_study_config(study):
         "replicates": int(study.get("replicates", 1)),
         "seed": None if study.get("seed") is None else int(study.get("seed")),
         "seed_stride": int(study.get("seed_stride", 1000)),
-        "metric": str(study.get("metric", "mse")),
+        "metric": str(study.get("metric", "data_fit")),
         "max_internal_reflections": int(study.get("max_internal_reflections", 0)),
         "optimizer": dict(
             study.get(
                 "optimizer",
                 {
                     "method": "L-BFGS-B",
-                    "options": {"maxiter": 35},
-                    "global_options": {"maxiter": 4, "popsize": 5, "seed": 123},
+                    "options": {"maxiter": 120},
+                    "global_options": {"maxiter": 8, "popsize": 8, "seed": 123},
                     "fd_rel_step": 1e-5,
                 },
             )
@@ -405,6 +405,8 @@ def _summary_row(case_id, replicate_id, seed, assignments, true_stack, sample, f
         "seed": seed,
         "success": bool(fit["success"]),
         "objective_value": float(fit["objective_value"]),
+        "initial_objective_value": float(fit.get("initial_objective_value", float("nan"))),
+        "data_fit": float(fit["residual_metrics"]["data_fit"]),
         "mse": float(fit["residual_metrics"]["mse"]),
         "normalized_mse": float(normalized_mse),
         "windowed_mse": _windowed_mse(
@@ -412,6 +414,8 @@ def _summary_row(case_id, replicate_id, seed, assignments, true_stack, sample, f
             observed_trace,
         ),
         "relative_l2": float(fit["residual_metrics"]["relative_l2"]),
+        "residual_rms": float(fit["residual_metrics"]["residual_rms"]),
+        "fit_sigma": float(fit["residual_metrics"]["fit_sigma"]),
         "peak_normalized_rmse": _peak_normalized_rmse(
             observed_trace,
             fitted_trace,
@@ -516,6 +520,8 @@ def _auto_plot_settings(config, sample: SampleResult):
     for x_key, y_key in itertools.combinations(sweep_keys, 2):
         axis_slug = f"{_plot_slug(x_key)}__vs__{_plot_slug(y_key)}"
         for value_key, title in (
+            ("data_fit", "Data Fit"),
+            ("fit_sigma", "Fit Sigma"),
             ("normalized_mse", "Normalized MSE"),
             ("relative_l2", "Relative L2"),
         ):
@@ -598,7 +604,7 @@ def show_study_heatmaps(study_result, *, contains=None, max_images=None, columns
     return fig, axes
 
 
-def plot_best_and_worst_case(study_result: StudyResult, *, metric_key="mse", output_path=None):
+def plot_best_and_worst_case(study_result: StudyResult, *, metric_key="data_fit", output_path=None):
     rows = list(study_result.summary_rows)
     best_row = min(rows, key=lambda row: float(row[metric_key]))
     worst_row = max(rows, key=lambda row: float(row[metric_key]))
@@ -616,7 +622,7 @@ def plot_best_and_worst_case(study_result: StudyResult, *, metric_key="mse", out
         axis.plot(fitted.time_ps, fitted.trace, label="fit", linewidth=1.4)
         axis.plot(truth.time_ps, truth.trace, label="true", linewidth=1.1, linestyle="--")
         axis.set_ylabel("Trace (a.u.)")
-        axis.set_title(f"{title}: case {int(row['case_id'])}, mse={float(row['mse']):.3e}")
+        axis.set_title(f"{title}: case {int(row['case_id'])}, {metric_key}={float(row[metric_key]):.3e}")
         axis.grid(True, alpha=0.3)
     axes[1].set_xlabel("Time (ps)")
     axes[0].legend()
@@ -628,7 +634,7 @@ def plot_best_and_worst_case(study_result: StudyResult, *, metric_key="mse", out
     return fig, axes
 
 
-def run_study(reference, sample, study, *, measurement=None, out_dir=None):
+def run_study(reference, sample, study, *, measurement=None, out_dir=None, show_progress=False, progress_path=None):
     if not isinstance(reference, ReferenceResult):
         raise TypeError("reference must be a ReferenceResult")
     config = _normalize_study_config(study)
@@ -642,6 +648,7 @@ def run_study(reference, sample, study, *, measurement=None, out_dir=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     cases_dir = out_dir / "cases"
     cases_dir.mkdir(parents=True, exist_ok=True)
+    progress_path = out_dir / "progress.json" if progress_path is None else Path(progress_path)
 
     summary_rows = []
     correlation_rows = []
@@ -651,6 +658,9 @@ def run_study(reference, sample, study, *, measurement=None, out_dir=None):
         {**config["fixed_assignments"], **assignment}
         for assignment in _axis_assignments(config["sweep_axes"])
     ]
+    total_runs = len(assignments_list) * int(config["replicates"])
+    completed_runs = 0
+    started_at = time.perf_counter()
     for case_id, assignments in enumerate(assignments_list):
         true_stack = _build_true_stack(sample, config, assignments)
         true_simulation = simulate_sample_from_reference(
@@ -690,6 +700,11 @@ def run_study(reference, sample, study, *, measurement=None, out_dir=None):
                 sample_observed_trace=_as_trace_data(reference, observed_trace, source_kind="simulation_observed"),
                 sample_fit_trace=_as_trace_data(reference, fit["fitted_simulation"]["sample_trace"], source_kind="simulation_fit"),
                 residual_trace=_as_trace_data(reference, fit["residual_trace"], source_kind="simulation_residual"),
+                noise_trace=_as_trace_data(
+                    reference,
+                    observed_trace - np.asarray(true_simulation["sample_trace"], dtype=np.float64),
+                    source_kind="simulation_noise",
+                ),
             )
 
             summary_row = _summary_row(
@@ -714,8 +729,33 @@ def run_study(reference, sample, study, *, measurement=None, out_dir=None):
                     success=bool(fit["success"]),
                     objective_value=float(fit["objective_value"]),
                     metric_value=float(fit["residual_metrics"][config["metric"]]),
+                    summary_row=deepcopy(summary_row),
+                    artifact_paths=dict(exported),
                 )
             )
+            completed_runs += 1
+            if show_progress and total_runs > 0:
+                elapsed_s = time.perf_counter() - started_at
+                avg_s = elapsed_s / completed_runs
+                _print_progress(completed_runs, total_runs, elapsed_s, avg_s)
+                _write_progress_json(
+                    progress_path,
+                    done=completed_runs,
+                    total=total_runs,
+                    elapsed_s=elapsed_s,
+                    avg_s=avg_s,
+                )
+
+    if total_runs > 0:
+        elapsed_s = time.perf_counter() - started_at
+        avg_s = elapsed_s / max(completed_runs, 1)
+        _write_progress_json(
+            progress_path,
+            done=completed_runs,
+            total=total_runs,
+            elapsed_s=elapsed_s,
+            avg_s=avg_s,
+        )
 
     summary_csv_path = out_dir / "study_summary.csv"
     correlation_csv_path = out_dir / "study_correlations.csv"
@@ -740,6 +780,7 @@ def run_study(reference, sample, study, *, measurement=None, out_dir=None):
         "study_summary_csv": summary_csv_path,
         "study_correlations_csv": correlation_csv_path,
         "study_config_json": config_path,
+        "study_progress_json": progress_path,
     }
 
     final_plot_settings = {

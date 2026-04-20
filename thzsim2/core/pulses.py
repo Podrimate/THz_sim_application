@@ -17,7 +17,7 @@ def sech_carrier_pulse(t, amp=1.0, t0=0.0, tau=0.2e-12, f0=1.0e12, phi=0.0):
     if tau <= 0:
         raise ValueError("tau must be positive")
     x = (t - t0) / tau
-    env = 1.0 / np.cosh(x)
+    env = 1.0 / np.cosh(np.clip(x, -700.0, 700.0))
     car = np.cos(2.0 * np.pi * f0 * (t - t0) + phi)
     return amp * env * car
 

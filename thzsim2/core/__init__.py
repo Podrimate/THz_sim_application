@@ -4,7 +4,7 @@ from .fft import fft_t_to_w, ifft_w_to_t, zero_pad_trace
 from .forward import simulate_sample_from_reference
 from .grids import make_grids, make_omega_grid, make_time_grid
 from .materials import evaluate_material_nk, eps_drude, eps_drude_lorentz, eps_lorentz, nk_from_eps
-from .metrics import mse, relative_l2, snr_db
+from .metrics import data_fit, fit_sigma, mse, normalized_mse, relative_l2, residual_rms, snr_db
 from .noise import add_white_gaussian_noise, noise_sigma_from_dynamic_range
 from .pulses import gaussian_carrier_pulse, make_pulse, sech_carrier_pulse
 from .stack import validate_layer, validate_stack
@@ -36,8 +36,12 @@ __all__ = [
     "eps_drude_lorentz",
     "nk_from_eps",
     "evaluate_material_nk",
+    "data_fit",
+    "normalized_mse",
     "mse",
     "relative_l2",
+    "residual_rms",
+    "fit_sigma",
     "snr_db",
     "add_white_gaussian_noise",
     "noise_sigma_from_dynamic_range",
