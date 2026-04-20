@@ -189,5 +189,8 @@ _tmp_nb_workflow_check/
 notebooks/runs/
 notebooks/workflow_outputs/
 notebooks/fit_workflow_outputs/
+thz_fit_workflow_outputs/
+thz_sim_workflow_outputs/
+thz_visual_guide_outputs/
 *.aux
 *.out

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,13 +12,16 @@ from thzsim2.core.fitting import (
     tau_ps_from_drude_gamma_thz,
 )
 from thzsim2.models import ConstantNK, Drude, Fit, Layer, Measurement, ReferenceStandard
-from thzsim2.workflows.reference import generate_reference_pulse, prepare_reference
+from thzsim2.workflows.reference import generate_reference_pulse, load_reference_csv, prepare_reference
 from thzsim2.workflows.sample_workflow import build_sample
 from thzsim2.workflows.study_setup import (
     build_study_setup,
     load_study_setup_csv,
+    load_study_setup_json,
     run_study_from_setup_csv,
+    run_study_from_setup_json,
     write_study_setup_csv,
+    write_study_setup_json,
 )
 from thzsim2.workflows.study_workflow import (
     load_study_summary,
@@ -402,3 +406,173 @@ def test_study_setup_csv_round_trip_and_run(tmp_path):
     assert row["measurement_polarization"] == "p"
     assert "normalized_mse" in row
     assert "fit__coating_n" in row
+
+
+def test_study_setup_json_round_trip_and_run(tmp_path):
+    setup = build_study_setup(
+        reference={
+            "kind": "generated_pulse",
+            "generate": {
+                "model": "sech_carrier",
+                "sample_count": 384,
+                "dt_ps": 0.03,
+                "time_center_ps": 8.0,
+                "pulse_center_ps": 5.0,
+                "tau_ps": 0.22,
+                "f0_thz": 0.9,
+                "amp": 1.0,
+                "phi_rad": 0.0,
+            },
+            "prepare": {
+                "output_root": tmp_path / "runs-json",
+                "run_label": "setup-json",
+            },
+        },
+        layers=[
+            Layer(
+                name="coating",
+                thickness_um=Fit(22.0, abs_min=10.0, abs_max=35.0, label="coating_thickness_um"),
+                material=ConstantNK(
+                    n=Fit(2.1, abs_min=1.8, abs_max=2.4, label="coating_n"),
+                    k=0.0,
+                ),
+            ),
+            Layer(
+                name="substrate",
+                thickness_um=450.0,
+                material=ConstantNK(n=1.55, k=0.0),
+            ),
+        ],
+        measurement={
+            "mode": "reflection",
+            "angle_deg": 45.0,
+            "polarization": "p",
+            "reference_standard": {
+                "kind": "stack",
+                "stack": {
+                    "layers": [
+                        {
+                            "name": "substrate",
+                            "thickness_um": 450.0,
+                            "material": {"kind": "ConstantNK", "n": 1.55, "k": 0.0},
+                        }
+                    ]
+                },
+            },
+        },
+        study={
+            "truth": {
+                "layers[0].thickness_um": [18.0, 24.0],
+                "layers[0].material.n": 2.05,
+            },
+            "noise_dynamic_range_db": 90.0,
+            "replicates": 1,
+            "seed": 7,
+            "metric": "mse",
+            "optimizer": {
+                "method": "L-BFGS-B",
+                "options": {"maxiter": 8},
+                "global_options": {"maxiter": 1, "popsize": 4, "seed": 7},
+                "fd_rel_step": 1e-4,
+            },
+            "out_dir": tmp_path / "study-from-json",
+        },
+    )
+
+    json_path = write_study_setup_json(tmp_path / "study_setup.json", setup)
+    loaded = load_study_setup_json(json_path)
+
+    assert loaded["reference"]["prepare"]["output_root"] == (tmp_path / "runs-json").resolve().as_posix()
+    assert loaded["measurement"]["reference_standard"]["kind"] == "stack"
+
+    study_result = run_study_from_setup_json(json_path)
+    assert len(study_result.summary_rows) == 2
+    assert "normalized_mse" in study_result.summary_rows[0]
+
+
+def test_measured_reference_study_path_keeps_main_pulse_available(tmp_path):
+    data_root = Path(__file__).resolve().parents[1] / "Test_data_for_fitter"
+    reference_csv = data_root / "A11008858_transmission" / "REFERENCE.csv"
+    sample_csv = data_root / "A11008858_transmission" / "SAMPLE.csv"
+    if not reference_csv.exists() or not sample_csv.exists():
+        pytest.skip("Test_data_for_fitter transmission pair is not available")
+
+    setup = build_study_setup(
+        reference={
+            "kind": "measured_csv",
+            "path": reference_csv,
+            "prepare": {
+                "output_root": tmp_path / "measured-runs",
+                "run_label": "measured-reference-study",
+            },
+        },
+        layers=[
+            Layer(
+                name="film",
+                thickness_um=Fit(550.0, abs_min=300.0, abs_max=800.0, label="film_thickness_um"),
+                material=Drude(
+                    eps_inf=12.0,
+                    plasma_freq_thz=Fit(1.1, abs_min=0.1, abs_max=3.0, label="film_plasma_freq_thz"),
+                    gamma_thz=Fit(0.08, abs_min=0.005, abs_max=0.5, label="film_gamma_thz"),
+                ),
+            )
+        ],
+        measurement={
+            "mode": "transmission",
+            "angle_deg": 0.0,
+            "polarization": "mixed",
+            "polarization_mix": 0.5,
+            "reference_standard": {"kind": "identity"},
+        },
+        study={
+            "truth": {
+                "layers[0].thickness_um": 550.0,
+                "layers[0].material.plasma_freq_thz": 1.1,
+                "layers[0].material.gamma_thz": 0.08,
+            },
+            "noise_dynamic_range_db": 80.0,
+            "replicates": 1,
+            "seed": 5,
+            "optimizer": {
+                "method": "L-BFGS-B",
+                "options": {"maxiter": 6},
+                "global_options": {"maxiter": 1, "popsize": 4, "seed": 5},
+                "fd_rel_step": 1e-4,
+            },
+            "out_dir": tmp_path / "measured-reference-study",
+        },
+    )
+    json_path = write_study_setup_json(tmp_path / "measured_reference_study.json", setup)
+    study_result = run_study_from_setup_json(json_path)
+    loaded_reference = load_reference_csv(reference_csv)
+    reference_peak_time = float(loaded_reference.time_ps[np.argmax(np.abs(loaded_reference.trace))])
+    assert reference_peak_time == pytest.approx(2611.3, abs=1.0)
+    assert len(study_result.summary_rows) == 1
+
+
+def test_build_study_setup_reports_readable_layer_config_errors():
+    with pytest.raises(ValueError, match=r"layers\[0\]\.material\.n"):
+        build_study_setup(
+            reference={
+                "kind": "generated_pulse",
+                "generate": {
+                    "model": "sech_carrier",
+                    "sample_count": 128,
+                    "dt_ps": 0.03,
+                    "time_center_ps": 4.0,
+                    "pulse_center_ps": 2.0,
+                    "tau_ps": 0.2,
+                    "f0_thz": 0.9,
+                    "amp": 1.0,
+                    "phi_rad": 0.0,
+                },
+            },
+            layers=[
+                {
+                    "name": "bad_layer",
+                    "thickness_um": 10.0,
+                    "material": {"kind": "ConstantNK", "k": 0.0},
+                }
+            ],
+            study={"truth": {"layers[0].thickness_um": 10.0}},
+        )

@@ -1,5 +1,6 @@
 """Minimal public API used by end-user notebooks."""
 
+from .workflows.fit_setup import build_fit_setup, load_fit_setup_json, run_measured_fit_from_setup_json, write_fit_setup_json
 from .core.fitting import (
     drude_gamma_thz_from_tau_ps,
     drude_plasma_freq_thz_from_sigma_tau,
@@ -26,6 +27,8 @@ from .workflows.fit_workflow import (
     prepare_trace_pair_for_fit,
     resolve_measurement_fit_parameters,
     run_measured_fit,
+    summarize_prepared_trace_pair,
+    summarize_trace_input,
 )
 from .workflows.reference import generate_reference_pulse, load_reference_csv, prepare_reference
 from .workflows.sample_workflow import build_sample
@@ -37,7 +40,15 @@ from .workflows.study_workflow import (
     run_study,
     show_study_heatmaps,
 )
-from .workflows.study_setup import build_study_setup, load_study_setup_csv, run_study_from_setup_csv, write_study_setup_csv
+from .workflows.study_setup import (
+    build_study_setup,
+    load_study_setup_csv,
+    load_study_setup_json,
+    run_study_from_setup_csv,
+    run_study_from_setup_json,
+    write_study_setup_csv,
+    write_study_setup_json,
+)
 from .workflows.validation_workflow import (
     load_validation_summary,
     plot_validation_plot_grid,
@@ -63,10 +74,16 @@ __all__ = [
     "generate_reference_pulse",
     "prepare_reference",
     "build_sample",
+    "build_fit_setup",
     "prepare_trace_pair_for_fit",
     "plot_trace_pair_preview",
+    "summarize_trace_input",
+    "summarize_prepared_trace_pair",
     "resolve_measurement_fit_parameters",
     "run_measured_fit",
+    "write_fit_setup_json",
+    "load_fit_setup_json",
+    "run_measured_fit_from_setup_json",
     "drude_gamma_thz_from_tau_ps",
     "drude_plasma_freq_thz_from_sigma_tau",
     "tau_ps_from_drude_gamma_thz",
@@ -76,8 +93,11 @@ __all__ = [
     "load_study_summary",
     "build_study_setup",
     "write_study_setup_csv",
+    "write_study_setup_json",
     "load_study_setup_csv",
+    "load_study_setup_json",
     "run_study_from_setup_csv",
+    "run_study_from_setup_json",
     "plot_study_summary",
     "show_study_heatmaps",
     "plot_best_and_worst_case",

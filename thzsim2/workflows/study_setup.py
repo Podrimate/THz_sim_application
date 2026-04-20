@@ -23,6 +23,7 @@ from thzsim2.models import (
     NKFile,
     ReferenceStandard,
 )
+from thzsim2.io.manifests import write_json
 from thzsim2.workflows.reference import generate_reference_pulse, load_reference_csv, prepare_reference
 from thzsim2.workflows.sample_workflow import build_sample
 from thzsim2.workflows.study_workflow import run_study
@@ -184,8 +185,11 @@ def _sample_to_config(
 ):
     if isinstance(layers, dict):
         config = deepcopy(layers)
+        _layers_from_config(config.get("layers", []))
         config["layers"] = [_layer_to_config(layer) for layer in config.get("layers", [])]
         return config
+    if layers and isinstance(next(iter(layers)), dict):
+        _layers_from_config(layers)
     return {
         "layers": [_layer_to_config(layer) for layer in layers],
         "n_in": float(n_in),
@@ -228,20 +232,25 @@ def _measurement_to_config(measurement):
             "polarization": "s",
             "reference_standard": {"kind": "identity"},
         }
+    if isinstance(measurement, dict):
+        payload = deepcopy(measurement)
+        payload["angle_deg"] = _parameter_from_config(payload.get("angle_deg", 0.0), path="measurement.angle_deg")
+        if "polarization_mix" in payload and payload["polarization_mix"] is not None:
+            payload["polarization_mix"] = _parameter_from_config(
+                payload["polarization_mix"],
+                path="measurement.polarization_mix",
+            )
+        measurement = Measurement(**payload)
     if isinstance(measurement, Measurement):
         return {
             "mode": measurement.mode,
-            "angle_deg": float(measurement.angle_deg),
+            "angle_deg": _parameter_to_config(measurement.angle_deg),
             "polarization": measurement.polarization,
-            "polarization_mix": None
-            if measurement.polarization_mix is None
-            else float(measurement.polarization_mix),
+            "polarization_mix": _parameter_to_config(measurement.polarization_mix)
+            if measurement.polarization_mix is not None
+            else None,
             "reference_standard": _reference_standard_to_config(measurement.reference_standard),
         }
-    if isinstance(measurement, dict):
-        config = deepcopy(measurement)
-        config["reference_standard"] = _reference_standard_to_config(config.get("reference_standard"))
-        return config
     raise TypeError("measurement must be a Measurement, dictionary, or None")
 
 
@@ -339,6 +348,14 @@ def write_study_setup_csv(path, setup):
     return path
 
 
+def write_study_setup_json(path, setup):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    serializable = _transform_path_fields(deepcopy(setup), base_dir=path.parent, to_relative=True)
+    write_json(path, serializable)
+    return path
+
+
 def load_study_setup_csv(path):
     path = Path(path)
     sections = {}
@@ -356,64 +373,105 @@ def load_study_setup_csv(path):
     return _transform_path_fields(sections, base_dir=path.parent, to_relative=False)
 
 
-def _parameter_from_config(value):
+def load_study_setup_json(path):
+    path = Path(path)
+    sections = json.loads(path.read_text(encoding="utf-8"))
+    if "meta" not in sections:
+        raise ValueError("study setup JSON is missing the 'meta' section")
+    version = int(sections["meta"].get("schema_version", -1))
+    if version != _SETUP_SCHEMA_VERSION:
+        raise ValueError(
+            f"Unsupported study setup schema_version={version}; expected {_SETUP_SCHEMA_VERSION}"
+        )
+    return _transform_path_fields(sections, base_dir=path.parent, to_relative=False)
+
+
+def _parameter_from_config(value, *, path="value"):
     if isinstance(value, dict) and str(value.get("kind", "")).strip() == "Fit":
         payload = dict(value)
         payload.pop("kind", None)
-        return Fit(**payload)
+        try:
+            return Fit(**payload)
+        except Exception as exc:
+            raise ValueError(f"{path}: invalid Fit configuration ({exc})") from exc
     return value
 
 
-def _material_from_config(config):
+def _material_from_config(config, *, path="material"):
     kind = str(config.get("kind", "")).strip()
     if kind == "NKFile":
+        if "path" not in config:
+            raise ValueError(f"{path}.path is required for kind='NKFile'")
         return NKFile(path=config["path"])
     if kind == "ConstantNK":
+        if "n" not in config:
+            raise ValueError(f"{path}.n is required for kind='ConstantNK'")
         return ConstantNK(
-            n=_parameter_from_config(config["n"]),
-            k=_parameter_from_config(config.get("k", 0.0)),
+            n=_parameter_from_config(config["n"], path=f"{path}.n"),
+            k=_parameter_from_config(config.get("k", 0.0), path=f"{path}.k"),
         )
     if kind == "Drude":
+        for field_name in ("eps_inf", "plasma_freq_thz", "gamma_thz"):
+            if field_name not in config:
+                raise ValueError(f"{path}.{field_name} is required for kind='Drude'")
         return Drude(
-            eps_inf=_parameter_from_config(config["eps_inf"]),
-            plasma_freq_thz=_parameter_from_config(config["plasma_freq_thz"]),
-            gamma_thz=_parameter_from_config(config["gamma_thz"]),
+            eps_inf=_parameter_from_config(config["eps_inf"], path=f"{path}.eps_inf"),
+            plasma_freq_thz=_parameter_from_config(config["plasma_freq_thz"], path=f"{path}.plasma_freq_thz"),
+            gamma_thz=_parameter_from_config(config["gamma_thz"], path=f"{path}.gamma_thz"),
         )
     if kind == "Lorentz":
+        for field_name in ("eps_inf", "delta_eps", "resonance_thz", "gamma_thz"):
+            if field_name not in config:
+                raise ValueError(f"{path}.{field_name} is required for kind='Lorentz'")
         return Lorentz(
-            eps_inf=_parameter_from_config(config["eps_inf"]),
-            delta_eps=_parameter_from_config(config["delta_eps"]),
-            resonance_thz=_parameter_from_config(config["resonance_thz"]),
-            gamma_thz=_parameter_from_config(config["gamma_thz"]),
+            eps_inf=_parameter_from_config(config["eps_inf"], path=f"{path}.eps_inf"),
+            delta_eps=_parameter_from_config(config["delta_eps"], path=f"{path}.delta_eps"),
+            resonance_thz=_parameter_from_config(config["resonance_thz"], path=f"{path}.resonance_thz"),
+            gamma_thz=_parameter_from_config(config["gamma_thz"], path=f"{path}.gamma_thz"),
         )
     if kind == "DrudeLorentz":
+        if "eps_inf" not in config:
+            raise ValueError(f"{path}.eps_inf is required for kind='DrudeLorentz'")
         oscillators = tuple(
             LorentzOscillator(
-                delta_eps=_parameter_from_config(osc["delta_eps"]),
-                resonance_thz=_parameter_from_config(osc["resonance_thz"]),
-                gamma_thz=_parameter_from_config(osc["gamma_thz"]),
+                delta_eps=_parameter_from_config(osc["delta_eps"], path=f"{path}.oscillators[{index}].delta_eps"),
+                resonance_thz=_parameter_from_config(
+                    osc["resonance_thz"],
+                    path=f"{path}.oscillators[{index}].resonance_thz",
+                ),
+                gamma_thz=_parameter_from_config(osc["gamma_thz"], path=f"{path}.oscillators[{index}].gamma_thz"),
             )
-            for osc in config.get("oscillators", [])
+            for index, osc in enumerate(config.get("oscillators", []))
         )
         return DrudeLorentz(
-            eps_inf=_parameter_from_config(config["eps_inf"]),
-            plasma_freq_thz=_parameter_from_config(config.get("plasma_freq_thz", 0.0)),
-            gamma_thz=_parameter_from_config(config.get("gamma_thz", 0.0)),
+            eps_inf=_parameter_from_config(config["eps_inf"], path=f"{path}.eps_inf"),
+            plasma_freq_thz=_parameter_from_config(
+                config.get("plasma_freq_thz", 0.0),
+                path=f"{path}.plasma_freq_thz",
+            ),
+            gamma_thz=_parameter_from_config(config.get("gamma_thz", 0.0), path=f"{path}.gamma_thz"),
             oscillators=oscillators,
         )
-    raise ValueError(f"Unsupported material kind '{kind}'")
+    raise ValueError(f"{path}.kind='{kind}' is not supported")
 
 
 def _layers_from_config(layer_configs):
     layers = []
-    for config in layer_configs:
-        layers.append(
-            Layer(
-                name=str(config["name"]),
-                thickness_um=_parameter_from_config(config["thickness_um"]),
-                material=_material_from_config(dict(config["material"])),
+    for index, config in enumerate(layer_configs):
+        try:
+            layers.append(
+                Layer(
+                    name=str(config["name"]),
+                    thickness_um=_parameter_from_config(config["thickness_um"], path=f"layers[{index}].thickness_um"),
+                    material=_material_from_config(dict(config["material"]), path=f"layers[{index}].material"),
+                )
             )
-        )
+        except KeyError as exc:
+            raise ValueError(f"layers[{index}] is missing required field '{exc.args[0]}'") from exc
+        except Exception as exc:
+            if isinstance(exc, ValueError):
+                raise
+            raise ValueError(f"layers[{index}] is invalid ({exc})") from exc
     return layers
 
 
@@ -432,6 +490,12 @@ def _build_sample_from_config(sample_config, *, reference_result, default_out_di
 
 def _measurement_from_config(measurement_config, *, reference_result):
     config = deepcopy(measurement_config)
+    config["angle_deg"] = _parameter_from_config(config.get("angle_deg", 0.0), path="measurement.angle_deg")
+    if "polarization_mix" in config and config["polarization_mix"] is not None:
+        config["polarization_mix"] = _parameter_from_config(
+            config["polarization_mix"],
+            path="measurement.polarization_mix",
+        )
     reference_standard_config = dict(config.get("reference_standard", {"kind": "identity"}))
     kind = str(reference_standard_config.get("kind", "identity")).strip().lower()
     if kind == "identity":
@@ -482,6 +546,26 @@ def _prepare_reference_from_config(reference_config):
 
 def run_study_from_setup_csv(path):
     setup = load_study_setup_csv(path)
+    reference_result = _prepare_reference_from_config(setup["reference"])
+    sample_result = _build_sample_from_config(
+        setup["sample"],
+        reference_result=reference_result,
+        default_out_dir=reference_result.run_dir / "sample",
+    )
+    measurement = _measurement_from_config(setup["measurement"], reference_result=reference_result)
+    study = deepcopy(setup["study"])
+    out_dir = study.pop("out_dir", None)
+    return run_study(
+        reference_result,
+        sample_result,
+        study,
+        measurement=measurement,
+        out_dir=None if out_dir is None else Path(out_dir),
+    )
+
+
+def run_study_from_setup_json(path):
+    setup = load_study_setup_json(path)
     reference_result = _prepare_reference_from_config(setup["reference"])
     sample_result = _build_sample_from_config(
         setup["sample"],
