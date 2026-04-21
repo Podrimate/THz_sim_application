@@ -4,7 +4,7 @@ from copy import deepcopy
 import re
 
 import numpy as np
-from scipy.optimize import differential_evolution, minimize
+from scipy.optimize import differential_evolution, dual_annealing, minimize
 from scipy.signal import correlate, correlation_lags
 
 from thzsim2.core.forward import simulate_sample_from_reference
@@ -177,6 +177,57 @@ def _weighted_data_fit(y_model, y_true, weights) -> float:
     numerator = float(np.sum(weights * residual * residual))
     denominator = max(float(np.sum(weights * y_true * y_true)), 1e-30)
     return numerator / denominator
+
+
+def _run_global_optimizer(objective, bounds, optimizer):
+    global_method = str(optimizer.get("global_method", "differential_evolution")).strip().lower()
+    if global_method in {"", "none"}:
+        return None
+
+    if global_method == "differential_evolution":
+        base_options = {
+            "seed": 123,
+            "polish": False,
+            "maxiter": 12,
+            "popsize": 10,
+            "tol": 1e-7,
+            "updating": "deferred",
+        }
+        base_options.update(dict(optimizer.get("global_options", {})))
+        restarts = max(1, int(optimizer.get("global_restarts", 1)))
+        seed = base_options.get("seed")
+        results = []
+        for restart_index in range(restarts):
+            options = dict(base_options)
+            if seed is not None:
+                options["seed"] = int(seed) + restart_index
+            results.append(differential_evolution(objective, bounds=bounds, **options))
+        finite_results = [result for result in results if np.isfinite(float(result.fun))]
+        return None if not finite_results else min(finite_results, key=lambda result: float(result.fun))
+
+    if global_method == "dual_annealing":
+        base_options = {
+            "seed": 123,
+            "maxiter": 800,
+            "no_local_search": True,
+        }
+        base_options.update(dict(optimizer.get("global_options", {})))
+        return dual_annealing(objective, bounds=bounds, **base_options)
+
+    raise ValueError("global_method must be 'differential_evolution', 'dual_annealing', or 'none'")
+
+
+def _run_local_optimizer(objective, x_start, bounds, optimizer):
+    method = optimizer.get("method", "L-BFGS-B")
+    if method is None or str(method).strip().lower() == "none":
+        return None
+    return minimize(
+        objective,
+        np.asarray(x_start, dtype=np.float64),
+        method=str(method),
+        bounds=bounds,
+        options=dict(optimizer.get("options", {"maxiter": 120})),
+    )
 
 
 def objective_metric_value(y_model, y_true, metric: str, *, objective_weights=None) -> float:
@@ -571,24 +622,9 @@ def fit_sample_trace(
             objective_weights=objective_weights,
         )
 
-    global_options = {
-        "seed": 123,
-        "polish": False,
-        "maxiter": 12,
-        "popsize": 10,
-        "tol": 1e-7,
-        "updating": "deferred",
-    }
-    global_options.update(dict(optimizer.get("global_options", {})))
-    de_result = differential_evolution(objective, bounds=bounds, **global_options)
-
-    local_result = minimize(
-        objective,
-        np.asarray(de_result.x, dtype=np.float64),
-        method=str(optimizer.get("method", "L-BFGS-B")),
-        bounds=bounds,
-        options=dict(optimizer.get("options", {"maxiter": 120})),
-    )
+    global_result = _run_global_optimizer(objective, bounds, optimizer)
+    local_start = x0 if global_result is None else np.asarray(global_result.x, dtype=np.float64)
+    local_result = _run_local_optimizer(objective, local_start, bounds, optimizer)
 
     candidates = [
         {
@@ -602,20 +638,20 @@ def fit_sample_trace(
             "optimizer_result": None,
         }
     ]
-    if np.isfinite(de_result.fun):
+    if global_result is not None and np.isfinite(global_result.fun):
         candidates.append(
             {
                 "kind": "global",
-                "x": np.asarray(de_result.x, dtype=np.float64),
-                "objective_value": float(de_result.fun),
-                "status": int(getattr(de_result, "status", 0)),
-                "message": str(de_result.message),
-                "nfev": int(de_result.nfev),
-                "nit": int(getattr(de_result, "nit", -1)),
-                "optimizer_result": de_result,
+                "x": np.asarray(global_result.x, dtype=np.float64),
+                "objective_value": float(global_result.fun),
+                "status": int(getattr(global_result, "status", 0)),
+                "message": str(global_result.message),
+                "nfev": int(getattr(global_result, "nfev", 0)),
+                "nit": int(getattr(global_result, "nit", -1)),
+                "optimizer_result": global_result,
             }
         )
-    if np.isfinite(local_result.fun):
+    if local_result is not None and np.isfinite(local_result.fun):
         candidates.append(
             {
                 "kind": "local",
