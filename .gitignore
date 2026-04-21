@@ -187,10 +187,16 @@ _tmp_extended_scenarios/
 _tmp_nb_test_check/
 _tmp_nb_workflow_check/
 notebooks/runs/
+notebooks/validation_runs/
 notebooks/workflow_outputs/
 notebooks/fit_workflow_outputs/
 thz_fit_workflow_outputs/
 thz_sim_workflow_outputs/
 thz_visual_guide_outputs/
+docs/_time_domain_fit_doc_runs/
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+unimportant/
 *.aux
 *.out

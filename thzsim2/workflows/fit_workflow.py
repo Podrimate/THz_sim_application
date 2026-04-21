@@ -10,7 +10,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from thzsim2.core.fitting import fit_sample_trace
+from thzsim2.core.fitting import build_objective_weights, fit_sample_trace
 from thzsim2.io.manifests import write_json
 from thzsim2.io.run_folders import slugify
 from thzsim2.io.trace_csv import read_trace_csv, write_trace_csv
@@ -605,6 +605,7 @@ def run_measured_fit(
     n_out=1.0,
     overlay_imported=True,
     delay_options=None,
+    weighting=None,
 ):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -623,6 +624,16 @@ def run_measured_fit(
         overlay_imported=overlay_imported,
     )
     resolved_measurement, measurement_fit_parameters = resolve_measurement_fit_parameters(measurement)
+    weighting = {} if weighting is None else dict(weighting)
+    objective_weights = None
+    if str(weighting.get("mode", "none")).strip().lower() != "none":
+        objective_weights = build_objective_weights(
+            prepared_traces.processed_sample.trace,
+            mode=weighting.get("mode", "trace_amplitude"),
+            floor=weighting.get("floor", 0.05),
+            power=weighting.get("power", 2.0),
+            smooth_window_samples=weighting.get("smooth_window_samples", 41),
+        )
     fit_result = fit_sample_trace(
         reference=reference_result,
         observed_trace=np.asarray(prepared_traces.processed_sample.trace, dtype=np.float64),
@@ -634,6 +645,7 @@ def run_measured_fit(
         optimizer=optimizer,
         measurement=resolved_measurement,
         delay_options=delay_options,
+        objective_weights=objective_weights,
     )
 
     fit_dir = reference_result.run_dir / "measured_fit"
@@ -672,6 +684,7 @@ def run_measured_fit(
             "objective_value": float(fit_result["objective_value"]),
             "initial_objective_value": float(fit_result["initial_objective_value"]),
             "metric": str(fit_result["metric"]),
+            "weighting": deepcopy(weighting),
             "initial_residual_metrics": deepcopy(fit_result["initial_residual_metrics"]),
             "residual_metrics": deepcopy(fit_result["residual_metrics"]),
         },
@@ -699,5 +712,6 @@ def run_measured_fit(
             "metric": str(metric),
             "max_internal_reflections": int(max_internal_reflections),
             "delay_options": None if delay_options is None else deepcopy(delay_options),
+            "weighting": deepcopy(weighting),
         },
     )

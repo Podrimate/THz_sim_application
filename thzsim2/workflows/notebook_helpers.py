@@ -30,7 +30,7 @@ from thzsim2.workflows.study_workflow import (
     _normalize_study_config,
     run_study,
 )
-from thzsim2.core.fitting import fit_sample_trace
+from thzsim2.core.fitting import build_objective_weights, fit_sample_trace
 from thzsim2.core.forward import normalize_measurement, simulate_sample_from_reference
 
 
@@ -99,6 +99,34 @@ def create_run_output_dir(run_name, *, root="notebooks/runs"):
     path = root / f"{timestamp}__{slugify(run_name)}"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def enable_inline_plots():
+    try:
+        from IPython import get_ipython
+
+        shell = get_ipython()
+        if shell is None:
+            return False
+        shell.run_line_magic("matplotlib", "inline")
+        return True
+    except Exception:
+        return False
+
+
+def resolve_workflow_root(local_folder_name, *, use_google_drive=False, google_drive_subdir="THz_sim_application_outputs"):
+    if use_google_drive:
+        try:
+            from google.colab import drive
+        except Exception as exc:
+            raise RuntimeError("Google Drive output is only available inside Google Colab.") from exc
+        mount_root = Path("/content/drive")
+        drive.mount(str(mount_root), force_remount=False)
+        root = mount_root / "MyDrive" / str(google_drive_subdir).strip().strip("/\\") / str(local_folder_name).strip()
+    else:
+        root = Path.cwd() / str(local_folder_name)
+    root.mkdir(parents=True, exist_ok=True)
+    return root.resolve()
 
 
 def write_python_snapshot(path, **variables):
@@ -275,6 +303,39 @@ def plot_trace_preview(trace_info, *, title_prefix, show_fft=False, freq_limits_
         except Exception:
             pass
     return fig, axes
+
+
+def plot_objective_weighting(trace_data, weighting, *, title="Objective Weighting Preview", display=True):
+    weighting = {} if weighting is None else dict(weighting)
+    mode = str(weighting.get("mode", "none")).strip().lower()
+    weights = build_objective_weights(
+        trace_data.trace,
+        mode=mode,
+        floor=weighting.get("floor", 0.05),
+        power=weighting.get("power", 2.0),
+        smooth_window_samples=weighting.get("smooth_window_samples", 41),
+    )
+    fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
+    axes[0].plot(trace_data.time_ps, trace_data.trace, label="trace")
+    axes[0].set_title(title)
+    axes[0].set_ylabel("Signal")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+
+    axes[1].plot(trace_data.time_ps, weights, label=f"weights ({mode})", color="tab:red")
+    axes[1].set_xlabel("Time (ps)")
+    axes[1].set_ylabel("Relative weight")
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend()
+    fig.tight_layout()
+    if display:
+        try:
+            from IPython.display import display as ipy_display
+
+            ipy_display(fig)
+        except Exception:
+            plt.show(block=False)
+    return weights, fig, axes
 
 
 def preview_sample_response(
@@ -485,6 +546,15 @@ def estimate_study_runtime(
             max_internal_reflections=config["max_internal_reflections"],
             optimizer=config["optimizer"],
             measurement=measurement,
+            objective_weights=build_objective_weights(
+                observed_trace,
+                mode=config["weighting"].get("mode", "none"),
+                floor=config["weighting"].get("floor", 0.05),
+                power=config["weighting"].get("power", 2.0),
+                smooth_window_samples=config["weighting"].get("smooth_window_samples", 41),
+            )
+            if str(config["weighting"].get("mode", "none")).strip().lower() != "none"
+            else None,
         )
     elapsed = time.perf_counter() - started
     avg_case_s = elapsed / pilot_case_count

@@ -20,6 +20,7 @@ from thzsim2.core import add_white_gaussian_noise, noise_sigma_from_dynamic_rang
 from thzsim2.core.fitting import (
     _set_by_path,
     apply_fit_values,
+    build_objective_weights,
     build_single_layer_drude_true_stack,
     drude_gamma_thz_from_tau_ps,
     drude_plasma_freq_thz_from_sigma_tau,
@@ -235,6 +236,7 @@ def _normalize_study_config(study):
         "seed": None if study.get("seed") is None else int(study.get("seed")),
         "seed_stride": int(study.get("seed_stride", 1000)),
         "metric": str(study.get("metric", "data_fit")),
+        "weighting": deepcopy(study.get("weighting", {"mode": "none"})),
         "max_internal_reflections": int(study.get("max_internal_reflections", 0)),
         "optimizer": dict(
             study.get(
@@ -407,6 +409,9 @@ def _summary_row(case_id, replicate_id, seed, assignments, true_stack, sample, f
         "objective_value": float(fit["objective_value"]),
         "initial_objective_value": float(fit.get("initial_objective_value", float("nan"))),
         "data_fit": float(fit["residual_metrics"]["data_fit"]),
+        "weighted_data_fit": float(
+            fit["residual_metrics"].get("weighted_data_fit", fit["residual_metrics"]["data_fit"])
+        ),
         "mse": float(fit["residual_metrics"]["mse"]),
         "normalized_mse": float(normalized_mse),
         "windowed_mse": _windowed_mse(
@@ -521,6 +526,7 @@ def _auto_plot_settings(config, sample: SampleResult):
         axis_slug = f"{_plot_slug(x_key)}__vs__{_plot_slug(y_key)}"
         for value_key, title in (
             ("data_fit", "Data Fit"),
+            ("weighted_data_fit", "Weighted Data Fit"),
             ("fit_sigma", "Fit Sigma"),
             ("normalized_mse", "Normalized MSE"),
             ("relative_l2", "Relative L2"),
@@ -690,6 +696,15 @@ def run_study(reference, sample, study, *, measurement=None, out_dir=None, show_
                 max_internal_reflections=config["max_internal_reflections"],
                 optimizer=config["optimizer"],
                 measurement=measurement,
+                objective_weights=build_objective_weights(
+                    observed_trace,
+                    mode=config["weighting"].get("mode", "none"),
+                    floor=config["weighting"].get("floor", 0.05),
+                    power=config["weighting"].get("power", 2.0),
+                    smooth_window_samples=config["weighting"].get("smooth_window_samples", 41),
+                )
+                if str(config["weighting"].get("mode", "none")).strip().lower() != "none"
+                else None,
             )
 
             case_dir = cases_dir / f"case_{case_id:04d}_rep_{replicate_id:04d}"
