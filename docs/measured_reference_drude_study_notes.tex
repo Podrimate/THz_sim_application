@@ -1,0 +1,315 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{siunitx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\title{THzSim2 Measured-Reference Drude Study Notes}
+\author{THzSim2 Repository}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Purpose}
+This note documents the equations used by the measured-reference compatibility workflow in
+\texttt{thzsim2}. The intended use is to explain the code path behind the one-layer Drude
+study that starts from a measured reference CSV, resamples it to a uniform time grid, fits a
+single Drude layer, and exports both the old-compatible mean-squared-error summary and the new
+diagnostic metrics.
+
+\section{Reference Trace Import and Resampling}
+The canonical time-trace CSV schema is
+\begin{center}
+\texttt{time\_ps,trace}
+\end{center}
+but the importer also accepts common measured-data headers such as
+\begin{center}
+\texttt{Time\_abs/ps, Signal/nA}.
+\end{center}
+
+If the measured time axis is not exactly uniform, the workflow preserves the raw amplitude
+values but interpolates them onto a uniform grid. Let the imported samples be
+\[
+\{(t_i, E_i)\}_{i=0}^{N-1},
+\qquad
+t_{i+1} > t_i.
+\]
+The dominant or median time step is used as the target spacing
+\[
+\Delta t_{\mathrm{resamp}} = \operatorname{median}(t_{i+1}-t_i),
+\]
+and the uniform grid is
+\[
+\tilde{t}_i = t_0 + i \, \Delta t_{\mathrm{resamp}},
+\qquad i = 0,\dots,N-1.
+\]
+The resampled trace is then
+\[
+\tilde{E}(\tilde{t}_i) = \operatorname{interp}\!\left(\tilde{t}_i; \{t_j,E_j\}\right),
+\]
+using linear interpolation.
+
+The compatibility workflow keeps the imported amplitude in source units. In the example
+measured CSV this means the exported reference trace remains in \si{\nano\ampere} rather than
+being normalized.
+
+\section{Fourier Transform Convention}
+The reference and sample traces are propagated through the frequency domain using the discrete
+Fourier-transform convention implemented in \texttt{thzsim2.core.fft}. If the time trace is
+\[
+E_n = E(t_n), \qquad t_n = t_0 + n \Delta t,
+\]
+then the angular-frequency grid is
+\[
+\omega_k = 2\pi f_k,
+\]
+with the standard FFT ordering from the uniform grid. The forward transform in code is
+\[
+\hat{E}(\omega_k) = \Delta t \, N \, \operatorname{IFFT}(E_n) \, e^{i \omega_k t_0},
+\]
+and the inverse transform is
+\[
+E_n = \frac{1}{N \Delta t}\operatorname{FFT}\!\left(\hat{E}(\omega_k)e^{-i\omega_k t_0}\right).
+\]
+
+This convention preserves the original time-origin offset \(t_0\), which matters when the
+reference trace is imported from a measured file rather than generated symmetrically around
+zero.
+
+\section{Single-Layer Transmission Model}
+For normal incidence, the complex field transmission through one layer of thickness \(d\),
+refractive index \(n_1(\omega)\), input medium \(n_0\), and output medium \(n_2\) is
+\[
+T(\omega)
+= t_{01}(\omega)\,p_1(\omega)\,t_{12}(\omega)\,F_{\mathrm{FP}}(\omega),
+\]
+where the Fresnel coefficients are
+\[
+t_{jk} = \frac{2n_j}{n_j+n_k},
+\qquad
+r_{jk} = \frac{n_j-n_k}{n_j+n_k},
+\]
+the propagation factor is
+\[
+p_1(\omega) = \exp\!\left(i \omega n_1(\omega)\frac{d}{c_0}\right),
+\]
+and the finite Fabry--Perot correction used by the code is
+\[
+F_{\mathrm{FP}}(\omega)
+= \sum_{m=0}^{M} \left[r_{12}(\omega)p_1(\omega)r_{10}(\omega)p_1(\omega)\right]^m.
+\]
+Here \(M\) is the configured maximum number of internal reflections. In the old-compatible
+study the default is \(M=8\).
+
+\section{Drude Material Model}
+The single fitted layer uses the Drude dielectric function
+\[
+\varepsilon(\omega)
+=
+\varepsilon_\infty
+- \frac{\omega_p^2}{\omega(\omega+i\gamma)}.
+\]
+The complex refractive index is obtained from
+\[
+\tilde{n}(\omega) = n(\omega) + i k(\omega) = \sqrt{\varepsilon(\omega)},
+\]
+with the passive branch selected so that
+\[
+k(\omega) \ge 0.
+\]
+
+The public notebook API uses \si{\tera\hertz} for both the Drude plasma frequency and damping:
+\[
+\omega_p = 2\pi f_p \times 10^{12},
+\qquad
+\gamma = 2\pi f_\gamma \times 10^{12}.
+\]
+
+\subsection{Conversion from Conductivity and Relaxation Time}
+The compatibility study follows the old script and often describes true values in terms of the
+DC conductivity \(\sigma\) and relaxation time \(\tau\). The code converts these to Drude
+parameters by
+\[
+\gamma = \frac{1}{\tau},
+\]
+\[
+\sigma = \varepsilon_0 \frac{\omega_p^2}{\gamma},
+\]
+so that
+\[
+\omega_p = \sqrt{\frac{\sigma}{\varepsilon_0 \tau}}.
+\]
+The notebook-facing helper functions therefore implement
+\[
+f_\gamma = \frac{1}{2\pi \tau},
+\qquad
+f_p = \frac{1}{2\pi \times 10^{12}}
+\sqrt{\frac{\sigma}{\varepsilon_0 \tau}}.
+\]
+
+\section{Why the Exported \(n,k\) CSV Starts Above Zero Frequency}
+For a Drude medium,
+\[
+\varepsilon(\omega)
+=
+\varepsilon_\infty
+- \frac{\omega_p^2}{\omega(\omega+i\gamma)}.
+\]
+As \(\omega \to 0\), the conductivity-driven response becomes singular, so the apparent
+\(n(\omega)\) and \(k(\omega)\) can become very large. The code still handles the
+\(\omega \approx 0\) behavior internally through a protected frequency floor, but the exported
+sample-layer CSVs and plots omit the exact \SI{0}{\tera\hertz} row so that the saved
+\texttt{freq\_thz,n,k} files remain numerically readable and visually useful.
+
+\section{Noise Model}
+The compatibility study adds white Gaussian noise to the clean simulated sample trace. If the
+requested dynamic range is \(D\) dB and the peak absolute sample amplitude is
+\[
+A_{\max} = \max_t |E_{\mathrm{sample,clean}}(t)|,
+\]
+then the noise standard deviation is
+\[
+\sigma_{\mathrm{noise}} = \frac{A_{\max}}{10^{D/20}}.
+\]
+The observed synthetic sample trace is
+\[
+E_{\mathrm{obs}}(t) = E_{\mathrm{sample,clean}}(t) + \eta(t),
+\qquad
+\eta(t) \sim \mathcal{N}(0,\sigma_{\mathrm{noise}}^2).
+\]
+
+\section{Objective Functions and Diagnostic Metrics}
+\subsection{Raw Mean-Squared Error}
+For compatibility with the old study, the primary fit objective remains the raw mean-squared
+error
+\[
+\mathrm{MSE}
+=
+\frac{1}{N}\sum_{i=0}^{N-1}
+\left(E_{\mathrm{model}}(t_i)-E_{\mathrm{obs}}(t_i)\right)^2.
+\]
+This value can be numerically small when the observed trace amplitude itself is small, so it
+must be interpreted together with the trace plots and the scale-aware diagnostics below.
+
+\subsection{Relative \texorpdfstring{$L^2$}{L2} Error}
+The relative \(L^2\) metric exported by the workflow is
+\[
+\mathrm{relative\_}L^2
+=
+\frac{\lVert E_{\mathrm{model}}-E_{\mathrm{obs}}\rVert_2}
+{\max\!\left(\lVert E_{\mathrm{obs}}\rVert_2,10^{-30}\right)}.
+\]
+
+\subsection{Windowed MSE}
+The added diagnostic \texttt{windowed\_mse} focuses on the part of the waveform where the
+observed signal is not negligible. With a threshold fraction \(\alpha\) (currently
+\(\alpha=0.05\)),
+\[
+\mathcal{I}
+=
+\left\{i:\, |E_{\mathrm{obs}}(t_i)| \ge \alpha \max_j |E_{\mathrm{obs}}(t_j)|\right\}.
+\]
+Then
+\[
+\mathrm{windowed\_MSE}
+=
+\frac{1}{|\mathcal{I}|}
+\sum_{i\in\mathcal{I}}
+\left(E_{\mathrm{model}}(t_i)-E_{\mathrm{obs}}(t_i)\right)^2.
+\]
+If no samples pass the threshold, the code falls back to the raw MSE.
+
+\subsection{Peak-Normalized RMSE}
+To make the residual scale easier to interpret visually, the workflow also exports
+\[
+\mathrm{peak\_normalized\_RMSE}
+=
+\frac{\sqrt{\frac{1}{N}\sum_i \left(E_{\mathrm{model}}(t_i)-E_{\mathrm{obs}}(t_i)\right)^2}}
+{\max\!\left(\max_i |E_{\mathrm{obs}}(t_i)|,10^{-30}\right)}.
+\]
+
+\section{Optimization Strategy}
+The fitting code uses a two-stage optimization strategy:
+\begin{enumerate}[leftmargin=2em]
+\item a global differential-evolution search over the bounded fit variables;
+\item a local \texttt{L-BFGS-B} refinement starting from the global best point.
+\end{enumerate}
+For the old-compatible study, the bounded fit variables are:
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+Parameter & Initial value & Lower bound & Upper bound \\
+\midrule
+Thickness & \SI{150}{\micro\meter} & \SI{40}{\micro\meter} & \SI{320}{\micro\meter} \\
+\(\tau\) & \SI{3}{\pico\second} & \SI{0.05}{\pico\second} & \SI{30}{\pico\second} \\
+\(\sigma\) & \SI{0.01}{\siemens\per\meter} & \SI{5e-4}{\siemens\per\meter} & \SI{0.2}{\siemens\per\meter} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Internally, the optimizer works on thickness, Drude plasma frequency, and Drude damping
+frequency, because those are the native variables of the forward model.
+
+\section{Parameter-Uncertainty Estimate}
+After the optimum \(\hat{\mathbf{x}}\) is found, the code estimates local parameter
+uncertainties with a finite-difference Jacobian of the residual vector
+\[
+\mathbf{r}(\mathbf{x}) = E_{\mathrm{obs}} - E_{\mathrm{model}}(\mathbf{x}).
+\]
+The Jacobian is approximated column-by-column as
+\[
+J_{:,j}
+\approx
+\frac{\mathbf{r}(\hat{\mathbf{x}} + h_j \mathbf{e}_j)
+-
+\mathbf{r}(\hat{\mathbf{x}} - h_j \mathbf{e}_j)}
+{2h_j},
+\]
+with a bounded step size chosen from the parameter magnitude and the parameter span.
+
+If there are \(m\) residual samples and \(p\) fitted parameters, the residual variance estimate is
+\[
+\hat{\sigma}^2 = \frac{\mathbf{r}^\mathsf{T}\mathbf{r}}{\max(m-p,1)}.
+\]
+The covariance estimate is then
+\[
+\Sigma \approx \hat{\sigma}^2 (J^\mathsf{T}J)^+,
+\]
+where \((\cdot)^+\) denotes the pseudoinverse. The reported parameter standard deviations are
+\[
+\sigma_j = \sqrt{\Sigma_{jj}},
+\]
+and the reported parameter correlations are
+\[
+\rho_{ij} = \frac{\Sigma_{ij}}{\sigma_i \sigma_j}.
+\]
+
+\section{Progress, ETA, and Study Size}
+The old-compatible workflow evaluates a pilot set of cases spread across the full sweep,
+estimates the average runtime per case, and prints an initial total runtime estimate before the
+full study loop begins. For the requested sweep
+\[
+4 \times 20 \times 20 \times 3 = 4800
+\]
+cases are run, with one replicate per case.
+
+\section{Known Pitfalls}
+\begin{itemize}[leftmargin=2em]
+\item \textbf{Pulse placement matters.} A generated pulse can look artificially tiny if its center
+lies outside the generated time window. The notebook-facing pulse generator now rejects that
+configuration explicitly.
+\item \textbf{Measured traces can carry baseline and DC offset.} The compatibility workflow keeps
+the measured amplitude scale and baseline for apples-to-apples comparison, but it records basic
+baseline diagnostics in the reference manifest.
+\item \textbf{Raw MSE is scale-dependent.} A visibly poor fit can still have a small raw MSE if the
+trace amplitude is small. The workflow therefore exports \texttt{windowed\_mse},
+\texttt{relative\_l2}, and \texttt{peak\_normalized\_rmse} alongside the raw MSE.
+\item \textbf{Drude DC export is not plot-friendly.} The internal model still handles the low-frequency
+limit, but the exported \texttt{freq\_thz,n,k} files start at the first positive frequency to avoid
+an unreadable DC row.
+\end{itemize}
+
+\end{document}

@@ -4,7 +4,7 @@ from copy import deepcopy
 import re
 
 import numpy as np
-from scipy.optimize import differential_evolution, minimize
+from scipy.optimize import differential_evolution, dual_annealing, minimize
 from scipy.signal import correlate, correlation_lags
 
 from thzsim2.core.forward import simulate_sample_from_reference
@@ -116,16 +116,132 @@ def _all_fit_parameter_specs(sample_fit_parameters, measurement_fit_parameters):
     return list(sample_fit_parameters) + list(measurement_fit_parameters)
 
 
-def objective_metric_value(y_model, y_true, metric: str) -> float:
+def _normalize_objective_weights(weights, size: int):
+    if weights is None:
+        return None
+    values = np.asarray(weights, dtype=np.float64)
+    if values.ndim != 1 or values.size != int(size):
+        raise ValueError("objective weights must be a 1D array matching the trace length")
+    if not np.isfinite(values).all():
+        raise ValueError("objective weights must be finite")
+    if np.any(values < 0.0):
+        raise ValueError("objective weights must be nonnegative")
+    mean_value = float(np.mean(values))
+    if mean_value <= 0.0:
+        raise ValueError("objective weights must have positive mean")
+    return values / mean_value
+
+
+def build_objective_weights(
+    trace,
+    *,
+    mode="trace_amplitude",
+    floor=0.05,
+    power=2.0,
+    smooth_window_samples=41,
+):
+    mode = "none" if mode is None else str(mode).strip().lower()
+    values = np.asarray(trace, dtype=np.float64)
+    if values.ndim != 1:
+        raise ValueError("trace must be 1D when building objective weights")
+    if mode == "none":
+        return np.ones(values.shape, dtype=np.float64)
+    if mode != "trace_amplitude":
+        raise ValueError("weighting mode must be 'none' or 'trace_amplitude'")
+
+    floor = float(floor)
+    power = float(power)
+    smooth_window_samples = max(1, int(smooth_window_samples))
+    if smooth_window_samples % 2 == 0:
+        smooth_window_samples += 1
+    if not (0.0 <= floor < 1.0):
+        raise ValueError("weight floor must satisfy 0 <= floor < 1")
+    if power <= 0.0:
+        raise ValueError("weight power must be positive")
+
+    envelope = np.abs(values)
+    if smooth_window_samples > 1:
+        kernel = np.ones(smooth_window_samples, dtype=np.float64) / float(smooth_window_samples)
+        envelope = np.convolve(envelope, kernel, mode="same")
+    peak = max(float(np.max(envelope)), 1e-30)
+    normalized = np.power(np.clip(envelope / peak, 0.0, None), power)
+    weights = floor + (1.0 - floor) * normalized
+    return _normalize_objective_weights(weights, values.size)
+
+
+def _weighted_data_fit(y_model, y_true, weights) -> float:
+    y_model = np.asarray(y_model, dtype=np.float64)
+    y_true = np.asarray(y_true, dtype=np.float64)
+    weights = _normalize_objective_weights(weights, y_true.size)
+    residual = y_model - y_true
+    numerator = float(np.sum(weights * residual * residual))
+    denominator = max(float(np.sum(weights * y_true * y_true)), 1e-30)
+    return numerator / denominator
+
+
+def _run_global_optimizer(objective, bounds, optimizer):
+    global_method = str(optimizer.get("global_method", "differential_evolution")).strip().lower()
+    if global_method in {"", "none"}:
+        return None
+
+    if global_method == "differential_evolution":
+        base_options = {
+            "seed": 123,
+            "polish": False,
+            "maxiter": 12,
+            "popsize": 10,
+            "tol": 1e-7,
+            "updating": "deferred",
+        }
+        base_options.update(dict(optimizer.get("global_options", {})))
+        restarts = max(1, int(optimizer.get("global_restarts", 1)))
+        seed = base_options.get("seed")
+        results = []
+        for restart_index in range(restarts):
+            options = dict(base_options)
+            if seed is not None:
+                options["seed"] = int(seed) + restart_index
+            results.append(differential_evolution(objective, bounds=bounds, **options))
+        finite_results = [result for result in results if np.isfinite(float(result.fun))]
+        return None if not finite_results else min(finite_results, key=lambda result: float(result.fun))
+
+    if global_method == "dual_annealing":
+        base_options = {
+            "seed": 123,
+            "maxiter": 800,
+            "no_local_search": True,
+        }
+        base_options.update(dict(optimizer.get("global_options", {})))
+        return dual_annealing(objective, bounds=bounds, **base_options)
+
+    raise ValueError("global_method must be 'differential_evolution', 'dual_annealing', or 'none'")
+
+
+def _run_local_optimizer(objective, x_start, bounds, optimizer):
+    method = optimizer.get("method", "L-BFGS-B")
+    if method is None or str(method).strip().lower() == "none":
+        return None
+    return minimize(
+        objective,
+        np.asarray(x_start, dtype=np.float64),
+        method=str(method),
+        bounds=bounds,
+        options=dict(optimizer.get("options", {"maxiter": 120})),
+    )
+
+
+def objective_metric_value(y_model, y_true, metric: str, *, objective_weights=None) -> float:
     if metric == "data_fit":
         return data_fit(y_model, y_true)
+    if metric == "weighted_data_fit":
+        return _weighted_data_fit(y_model, y_true, objective_weights)
     if metric == "mse":
         return mse(y_model, y_true)
     if metric == "normalized_mse":
         return normalized_mse(y_model, y_true)
     if metric == "relative_l2":
         return relative_l2(y_model, y_true)
-    raise ValueError("metric must be 'data_fit', 'mse', 'normalized_mse', or 'relative_l2'")
+    raise ValueError("metric must be 'data_fit', 'weighted_data_fit', 'mse', 'normalized_mse', or 'relative_l2'")
 
 
 def estimate_trace_delay_ps(model_trace, observed_trace, time_ps) -> float:
@@ -450,11 +566,13 @@ def fit_sample_trace(
     measurement=None,
     measurement_fit_parameters=None,
     delay_options=None,
+    objective_weights=None,
 ):
     sample_fit_parameters = list(fit_parameters)
     measurement_fit_parameters = [] if measurement_fit_parameters is None else list(measurement_fit_parameters)
     optimizer = {} if optimizer is None else dict(optimizer)
     observed_trace = np.asarray(observed_trace, dtype=np.float64)
+    objective_weights = _normalize_objective_weights(objective_weights, observed_trace.size) if objective_weights is not None else None
 
     delay_parameter, coarse_delay_ps = _resolve_delay_fit_spec(
         delay_options=delay_options,
@@ -484,7 +602,7 @@ def fit_sample_trace(
         max_internal_reflections=max_internal_reflections,
     )
     initial_trace = np.asarray(initial_simulation["sample_trace"], dtype=np.float64)
-    initial_objective_value = objective_metric_value(initial_trace, observed_trace, metric)
+    initial_objective_value = objective_metric_value(initial_trace, observed_trace, metric, objective_weights=objective_weights)
 
     def objective(x):
         simulated, _, _, _ = _simulate_trial(
@@ -497,26 +615,16 @@ def fit_sample_trace(
             delay_parameter=delay_parameter,
             max_internal_reflections=max_internal_reflections,
         )
-        return objective_metric_value(simulated["sample_trace"], observed_trace, metric)
+        return objective_metric_value(
+            simulated["sample_trace"],
+            observed_trace,
+            metric,
+            objective_weights=objective_weights,
+        )
 
-    global_options = {
-        "seed": 123,
-        "polish": False,
-        "maxiter": 12,
-        "popsize": 10,
-        "tol": 1e-7,
-        "updating": "deferred",
-    }
-    global_options.update(dict(optimizer.get("global_options", {})))
-    de_result = differential_evolution(objective, bounds=bounds, **global_options)
-
-    local_result = minimize(
-        objective,
-        np.asarray(de_result.x, dtype=np.float64),
-        method=str(optimizer.get("method", "L-BFGS-B")),
-        bounds=bounds,
-        options=dict(optimizer.get("options", {"maxiter": 120})),
-    )
+    global_result = _run_global_optimizer(objective, bounds, optimizer)
+    local_start = x0 if global_result is None else np.asarray(global_result.x, dtype=np.float64)
+    local_result = _run_local_optimizer(objective, local_start, bounds, optimizer)
 
     candidates = [
         {
@@ -530,20 +638,20 @@ def fit_sample_trace(
             "optimizer_result": None,
         }
     ]
-    if np.isfinite(de_result.fun):
+    if global_result is not None and np.isfinite(global_result.fun):
         candidates.append(
             {
                 "kind": "global",
-                "x": np.asarray(de_result.x, dtype=np.float64),
-                "objective_value": float(de_result.fun),
-                "status": int(getattr(de_result, "status", 0)),
-                "message": str(de_result.message),
-                "nfev": int(de_result.nfev),
-                "nit": int(getattr(de_result, "nit", -1)),
-                "optimizer_result": de_result,
+                "x": np.asarray(global_result.x, dtype=np.float64),
+                "objective_value": float(global_result.fun),
+                "status": int(getattr(global_result, "status", 0)),
+                "message": str(global_result.message),
+                "nfev": int(getattr(global_result, "nfev", 0)),
+                "nit": int(getattr(global_result, "nit", -1)),
+                "optimizer_result": global_result,
             }
         )
-    if np.isfinite(local_result.fun):
+    if local_result is not None and np.isfinite(local_result.fun):
         candidates.append(
             {
                 "kind": "local",
@@ -600,6 +708,9 @@ def fit_sample_trace(
     }
     residual_metrics = {
         "data_fit": data_fit(fitted_trace, observed_trace),
+        "weighted_data_fit": _weighted_data_fit(fitted_trace, observed_trace, objective_weights)
+        if objective_weights is not None
+        else data_fit(fitted_trace, observed_trace),
         "mse": mse(fitted_trace, observed_trace),
         "normalized_mse": normalized_mse(fitted_trace, observed_trace),
         "relative_l2": relative_l2(fitted_trace, observed_trace),
@@ -610,6 +721,9 @@ def fit_sample_trace(
     initial_residual = observed_trace - initial_trace
     initial_residual_metrics = {
         "data_fit": data_fit(initial_trace, observed_trace),
+        "weighted_data_fit": _weighted_data_fit(initial_trace, observed_trace, objective_weights)
+        if objective_weights is not None
+        else data_fit(initial_trace, observed_trace),
         "mse": mse(initial_trace, observed_trace),
         "normalized_mse": normalized_mse(initial_trace, observed_trace),
         "relative_l2": relative_l2(initial_trace, observed_trace),
@@ -634,6 +748,7 @@ def fit_sample_trace(
         "x_opt": x_opt,
         "bounds": bounds,
         "metric": metric,
+        "objective_weights": None if objective_weights is None else np.asarray(objective_weights, dtype=np.float64),
         "parameter_names": parameter_names,
         "recovered_parameters": recovered_parameters,
         "parameter_sigmas": sigma_map,

@@ -32,6 +32,8 @@ from .workflows.fit_workflow import (
 )
 from .workflows.notebook_helpers import (
     create_run_output_dir,
+    enable_inline_plots,
+    estimate_single_layer_transmission_nk,
     ensure_builtin_material_file,
     estimate_study_runtime,
     find_nearest_study_row,
@@ -40,6 +42,7 @@ from .workflows.notebook_helpers import (
     layers_from_definition,
     plot_study_case_detail,
     plot_study_heatmap_selector,
+    plot_objective_weighting,
     plot_trace_preview,
     preview_sample_response,
     preview_study_noise,
@@ -104,8 +107,11 @@ __all__ = [
     "fit_param",
     "sweep_axis",
     "layers_from_definition",
+    "enable_inline_plots",
     "ensure_builtin_material_file",
+    "estimate_single_layer_transmission_nk",
     "inspect_trace_input",
+    "plot_objective_weighting",
     "plot_trace_preview",
     "trace_spectrum",
     "preview_sample_response",
