@@ -45,6 +45,13 @@ def _validate_fit_bounds(value: Fit, *, field_name: str):
         raise ValueError(f"{field_name} Fit(...) must define both lower and upper bounds")
 
 
+def _resolve_scalar_value(value, *, field_name: str):
+    if isinstance(value, Fit):
+        _validate_fit_bounds(value, field_name=field_name)
+        return value
+    return float(value)
+
+
 @dataclass(slots=True)
 class ResolvedMeasurementFitParameter:
     key: str
@@ -63,9 +70,9 @@ class ReferenceStandard:
 
     def __post_init__(self):
         self.kind = str(self.kind).strip().lower()
-        if self.kind not in {"identity", "stack"}:
-            raise ValueError("reference_standard.kind must be 'identity' or 'stack'")
-        if self.kind == "identity":
+        if self.kind not in {"identity", "stack", "ambient_replacement"}:
+            raise ValueError("reference_standard.kind must be 'identity', 'stack', or 'ambient_replacement'")
+        if self.kind in {"identity", "ambient_replacement"}:
             self.stack = None
             return
         if self.stack is None:
@@ -78,6 +85,8 @@ class Measurement:
     angle_deg: float | Fit = 0.0
     polarization: str = "s"
     polarization_mix: float | Fit | None = None
+    trace_scale: float | Fit = 1.0
+    trace_offset: float | Fit = 0.0
     reference_standard: ReferenceStandard | dict[str, Any] | None = None
 
     def __post_init__(self):
@@ -103,6 +112,9 @@ class Measurement:
                 self.polarization_mix,
                 field_name="polarization_mix",
             )
+
+        self.trace_scale = _resolve_scalar_value(self.trace_scale, field_name="trace_scale")
+        self.trace_offset = _resolve_scalar_value(self.trace_offset, field_name="trace_offset")
 
         if isinstance(self.reference_standard, dict):
             self.reference_standard = ReferenceStandard(**self.reference_standard)

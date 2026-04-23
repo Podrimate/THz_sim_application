@@ -15,6 +15,7 @@ from .sample import (
     ResolvedFitParameter,
     SampleLayerResult,
     SampleResult,
+    TwoDrude,
 )
 from .study import StudyCaseResult, StudyResult
 from .validation import ValidationCaseResult, ValidationSuiteResult
@@ -33,6 +34,7 @@ __all__ = [
     "NKFile",
     "ConstantNK",
     "Drude",
+    "TwoDrude",
     "Lorentz",
     "LorentzOscillator",
     "DrudeLorentz",

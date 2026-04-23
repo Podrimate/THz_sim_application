@@ -1,8 +1,15 @@
 """High-level notebook-facing workflows."""
 
-from .fit_setup import build_fit_setup, load_fit_setup_json, run_measured_fit_from_setup_json, write_fit_setup_json
+from .fit_setup import (
+    build_fit_setup,
+    load_fit_setup_json,
+    run_fit_from_setup_json,
+    run_measured_fit_from_setup_json,
+    write_fit_setup_json,
+)
 from .fit_workflow import (
     plot_trace_pair_preview,
+    prepare_reflection_first_peak_pair,
     prepare_trace_pair_for_fit,
     resolve_measurement_fit_parameters,
     run_measured_fit,
@@ -58,6 +65,7 @@ from .validation_workflow import (
 
 __all__ = [
     "prepare_trace_pair_for_fit",
+    "prepare_reflection_first_peak_pair",
     "plot_trace_pair_preview",
     "summarize_trace_input",
     "summarize_prepared_trace_pair",
@@ -84,6 +92,7 @@ __all__ = [
     "build_fit_setup",
     "write_fit_setup_json",
     "load_fit_setup_json",
+    "run_fit_from_setup_json",
     "run_measured_fit_from_setup_json",
     "load_reference_csv",
     "generate_reference_pulse",

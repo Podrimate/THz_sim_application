@@ -1,0 +1,186 @@
+{
+  "title": "Two-Drude transmission: $\\tau_1$ vs $\\sigma_1$ (0 deg, s-pol, $d_{\\mathrm{sub}}=525\\,\\mu$m, $d_{\\mathrm{epi}}=50\\,\\mu$m)",
+  "slug": "advanced_tx_tau1_sigma1_0deg_s_525um",
+  "rows": [
+    {
+      "param_i": "epi_gamma1_thz",
+      "param_j": "epi_gamma1_thz",
+      "correlation": 1.0
+    },
+    {
+      "param_i": "epi_gamma1_thz",
+      "param_j": "epi_gamma2_thz",
+      "correlation": 0.8256970277625927
+    },
+    {
+      "param_i": "epi_gamma1_thz",
+      "param_j": "epi_plasma1_thz",
+      "correlation": -0.5000108540036919
+    },
+    {
+      "param_i": "epi_gamma1_thz",
+      "param_j": "epi_plasma2_thz",
+      "correlation": 0.9220167606951774
+    },
+    {
+      "param_i": "epi_gamma1_thz",
+      "param_j": "epi_thickness_um",
+      "correlation": -0.3061138369776234
+    },
+    {
+      "param_i": "epi_gamma1_thz",
+      "param_j": "oxide_thickness_um",
+      "correlation": 0.09599532249617203
+    },
+    {
+      "param_i": "epi_gamma2_thz",
+      "param_j": "epi_gamma1_thz",
+      "correlation": 0.8256970277625927
+    },
+    {
+      "param_i": "epi_gamma2_thz",
+      "param_j": "epi_gamma2_thz",
+      "correlation": 1.0
+    },
+    {
+      "param_i": "epi_gamma2_thz",
+      "param_j": "epi_plasma1_thz",
+      "correlation": -0.8168982348921111
+    },
+    {
+      "param_i": "epi_gamma2_thz",
+      "param_j": "epi_plasma2_thz",
+      "correlation": 0.9578214677005576
+    },
+    {
+      "param_i": "epi_gamma2_thz",
+      "param_j": "epi_thickness_um",
+      "correlation": -0.28535627671937946
+    },
+    {
+      "param_i": "epi_gamma2_thz",
+      "param_j": "oxide_thickness_um",
+      "correlation": 0.12859593211164422
+    },
+    {
+      "param_i": "epi_plasma1_thz",
+      "param_j": "epi_gamma1_thz",
+      "correlation": -0.5000108540036919
+    },
+    {
+      "param_i": "epi_plasma1_thz",
+      "param_j": "epi_gamma2_thz",
+      "correlation": -0.8168982348921111
+    },
+    {
+      "param_i": "epi_plasma1_thz",
+      "param_j": "epi_plasma1_thz",
+      "correlation": 1.0
+    },
+    {
+      "param_i": "epi_plasma1_thz",
+      "param_j": "epi_plasma2_thz",
+      "correlation": -0.8051502364540671
+    },
+    {
+      "param_i": "epi_plasma1_thz",
+      "param_j": "epi_thickness_um",
+      "correlation": 0.23587990206357395
+    },
+    {
+      "param_i": "epi_plasma1_thz",
+      "param_j": "oxide_thickness_um",
+      "correlation": -0.13275832928707132
+    },
+    {
+      "param_i": "epi_plasma2_thz",
+      "param_j": "epi_gamma1_thz",
+      "correlation": 0.9220167606951774
+    },
+    {
+      "param_i": "epi_plasma2_thz",
+      "param_j": "epi_gamma2_thz",
+      "correlation": 0.9578214677005576
+    },
+    {
+      "param_i": "epi_plasma2_thz",
+      "param_j": "epi_plasma1_thz",
+      "correlation": -0.8051502364540671
+    },
+    {
+      "param_i": "epi_plasma2_thz",
+      "param_j": "epi_plasma2_thz",
+      "correlation": 1.0
+    },
+    {
+      "param_i": "epi_plasma2_thz",
+      "param_j": "epi_thickness_um",
+      "correlation": -0.31511079723076774
+    },
+    {
+      "param_i": "epi_plasma2_thz",
+      "param_j": "oxide_thickness_um",
+      "correlation": 0.13689133155506444
+    },
+    {
+      "param_i": "epi_thickness_um",
+      "param_j": "epi_gamma1_thz",
+      "correlation": -0.3061138369776234
+    },
+    {
+      "param_i": "epi_thickness_um",
+      "param_j": "epi_gamma2_thz",
+      "correlation": -0.28535627671937946
+    },
+    {
+      "param_i": "epi_thickness_um",
+      "param_j": "epi_plasma1_thz",
+      "correlation": 0.23587990206357395
+    },
+    {
+      "param_i": "epi_thickness_um",
+      "param_j": "epi_plasma2_thz",
+      "correlation": -0.31511079723076774
+    },
+    {
+      "param_i": "epi_thickness_um",
+      "param_j": "epi_thickness_um",
+      "correlation": 1.0
+    },
+    {
+      "param_i": "epi_thickness_um",
+      "param_j": "oxide_thickness_um",
+      "correlation": -0.911324444657635
+    },
+    {
+      "param_i": "oxide_thickness_um",
+      "param_j": "epi_gamma1_thz",
+      "correlation": 0.09599532249617203
+    },
+    {
+      "param_i": "oxide_thickness_um",
+      "param_j": "epi_gamma2_thz",
+      "correlation": 0.12859593211164422
+    },
+    {
+      "param_i": "oxide_thickness_um",
+      "param_j": "epi_plasma1_thz",
+      "correlation": -0.13275832928707132
+    },
+    {
+      "param_i": "oxide_thickness_um",
+      "param_j": "epi_plasma2_thz",
+      "correlation": 0.13689133155506444
+    },
+    {
+      "param_i": "oxide_thickness_um",
+      "param_j": "epi_thickness_um",
+      "correlation": -0.911324444657635
+    },
+    {
+      "param_i": "oxide_thickness_um",
+      "param_j": "oxide_thickness_um",
+      "correlation": 1.0
+    }
+  ]
+}

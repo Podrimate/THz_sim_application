@@ -1,0 +1,57 @@
+{
+  "schema_name": "thzsim2.reference_manifest",
+  "schema_version": "1.0",
+  "run_id": "20260423_121728__reference__one-layer-tx-tau-sigma-low-s-45deg-reference",
+  "created_at": "2026-04-23T12:17:28.638636+02:00",
+  "workflow": "reference",
+  "units": {
+    "time": "ps",
+    "frequency": "THz",
+    "thickness": "um",
+    "conductivity": "S/m"
+  },
+  "source": {
+    "kind": "generated",
+    "pulse": {
+      "model": "sech_carrier",
+      "amp": 1.0,
+      "pulse_center_ps": 9.0,
+      "tau_ps": 0.22,
+      "f0_thz": 0.9,
+      "phi_rad": 0.0
+    },
+    "requested_grid": {
+      "sample_count": 1024,
+      "raw_sample_count": 1024,
+      "dt_ps": 0.03,
+      "time_center_ps": 18.0
+    }
+  },
+  "grid": {
+    "sample_count": 1024,
+    "dt_ps": 0.03000000000000025,
+    "time_min_ps": 2.6549999999999994,
+    "time_max_ps": 33.345,
+    "time_center_ps": 18.0,
+    "pad_factor": 1
+  },
+  "trace_summary": {
+    "amplitude_scale": 0.9940931399905103,
+    "pulse_center_ps": 8.985
+  },
+  "spectrum_summary": {
+    "freq_min_thz": 0.0,
+    "freq_max_thz": 16.634114583333194,
+    "peak_freq_thz": 0.8789062499999927,
+    "spectral_centroid_thz": 0.9767578462586181
+  },
+  "files": {
+    "reference_trace_csv": "reference/reference_trace.csv",
+    "reference_spectrum_csv": "reference/reference_spectrum.csv",
+    "reference_summary_csv": "reference/reference_summary.csv",
+    "reference_summary_txt": "reference/reference_summary.txt",
+    "reference_manifest_json": "reference/manifest.json",
+    "reference_trace_png": "reference/reference_trace.png",
+    "reference_spectrum_png": "reference/reference_spectrum.png"
+  }
+}

@@ -39,6 +39,15 @@ class Drude:
 
 
 @dataclass(slots=True)
+class TwoDrude:
+    eps_inf: ParameterValue
+    plasma_freq1_thz: ParameterValue
+    gamma1_thz: ParameterValue
+    plasma_freq2_thz: ParameterValue
+    gamma2_thz: ParameterValue
+
+
+@dataclass(slots=True)
 class Lorentz:
     eps_inf: ParameterValue
     delta_eps: ParameterValue
@@ -64,7 +73,7 @@ class DrudeLorentz:
         self.oscillators = tuple(self.oscillators)
 
 
-MaterialSpec: TypeAlias = NKFile | ConstantNK | Drude | Lorentz | DrudeLorentz
+MaterialSpec: TypeAlias = NKFile | ConstantNK | Drude | TwoDrude | Lorentz | DrudeLorentz
 
 
 @dataclass(slots=True)

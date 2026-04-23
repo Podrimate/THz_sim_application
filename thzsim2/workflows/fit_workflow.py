@@ -10,7 +10,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from thzsim2.core.fitting import fit_sample_trace
+from thzsim2.core.fitting import build_objective_weights, fit_sample_trace
 from thzsim2.io.manifests import write_json
 from thzsim2.io.run_folders import slugify
 from thzsim2.io.trace_csv import read_trace_csv, write_trace_csv
@@ -56,6 +56,34 @@ def _detect_peak_info(time_ps, trace):
         "value": float(values[index]),
         "abs_value": float(abs(values[index])),
     }
+
+
+def _build_window_mask(time_ps, *, center_ps, pre_ps, post_ps):
+    times = np.asarray(time_ps, dtype=np.float64)
+    start = float(center_ps) - float(pre_ps)
+    stop = float(center_ps) + float(post_ps)
+    mask = (times >= start) & (times <= stop)
+    if np.count_nonzero(mask) < 3:
+        raise ValueError("reference window leaves fewer than three samples")
+    return mask, [float(times[mask][0]), float(times[mask][-1])]
+
+
+def _windowed_reference_trace(trace, mask, *, taper="hann"):
+    values = np.asarray(trace, dtype=np.float64)
+    mask = np.asarray(mask, dtype=bool)
+    out = np.zeros(values.shape, dtype=np.float64)
+    window_values = values[mask]
+    if str(taper).strip().lower() == "none":
+        weights = np.ones(window_values.shape, dtype=np.float64)
+    else:
+        size = window_values.size
+        if size < 3:
+            raise ValueError("reference taper requires at least three samples")
+        weights = np.hanning(size)
+        if np.max(weights) <= 0.0:
+            weights = np.ones(window_values.shape, dtype=np.float64)
+    out[mask] = window_values * weights
+    return out
 
 
 def _normalize_crop_mode(crop_mode, *, crop_time_window_ps):
@@ -374,6 +402,175 @@ def prepare_trace_pair_for_fit(
     )
 
 
+def prepare_reflection_first_peak_pair(
+    sample_input,
+    *,
+    sample_time_column=None,
+    sample_signal_column=None,
+    baseline_subtract=True,
+    baseline_window_samples=50,
+    crop_time_window_ps=None,
+    baseline_mode=None,
+    crop_mode="none",
+    reference_window_ps=None,
+    reference_pre_peak_ps=1.0,
+    reference_post_peak_ps=4.0,
+    taper="hann",
+    remove_reference_from_sample=True,
+):
+    raw_sample = _load_trace_input(
+        sample_input,
+        time_column=sample_time_column,
+        signal_column=sample_signal_column,
+    )
+    aligned_reference = TraceData(
+        time_ps=np.asarray(raw_sample.time_ps, dtype=np.float64).copy(),
+        trace=np.asarray(raw_sample.trace, dtype=np.float64).copy(),
+        source_kind="reflection_self_reference_source",
+        source_path=raw_sample.source_path,
+        pad_factor=raw_sample.pad_factor,
+        metadata=dict(raw_sample.metadata),
+    )
+    aligned_sample = TraceData(
+        time_ps=np.asarray(raw_sample.time_ps, dtype=np.float64).copy(),
+        trace=np.asarray(raw_sample.trace, dtype=np.float64).copy(),
+        source_kind=raw_sample.source_kind,
+        source_path=raw_sample.source_path,
+        pad_factor=raw_sample.pad_factor,
+        metadata=dict(raw_sample.metadata),
+    )
+
+    peak_info = _detect_peak_info(aligned_sample.time_ps, aligned_sample.trace)
+    resolved_crop_mode = _normalize_crop_mode(crop_mode, crop_time_window_ps=crop_time_window_ps)
+    resolved_baseline_mode = _normalize_baseline_mode(
+        baseline_mode,
+        baseline_subtract=baseline_subtract,
+    )
+    baseline_mask, baseline_info = _resolve_baseline_mask(
+        aligned_sample.time_ps,
+        baseline_mode=resolved_baseline_mode,
+        baseline_window_samples=int(baseline_window_samples),
+        aligned_reference_peak=peak_info,
+        aligned_sample_peak=peak_info,
+    )
+    processed_full_trace, baseline_value = _apply_baseline_mask(
+        aligned_sample.trace,
+        baseline_mask,
+        baseline_mode=resolved_baseline_mode,
+    )
+    crop_mask, actual_crop_window_ps, requested_crop_window_ps = _resolve_crop_window(
+        aligned_sample.time_ps,
+        crop_mode=resolved_crop_mode,
+        crop_time_window_ps=crop_time_window_ps,
+        aligned_reference_peak=peak_info,
+        aligned_sample_peak=peak_info,
+    )
+    processed_time_ps = np.asarray(aligned_sample.time_ps, dtype=np.float64)[crop_mask]
+    processed_full_trace = np.asarray(processed_full_trace, dtype=np.float64)[crop_mask]
+    processed_peak = _detect_peak_info(processed_time_ps, processed_full_trace)
+
+    if reference_window_ps is None:
+        reference_mask, actual_reference_window_ps = _build_window_mask(
+            processed_time_ps,
+            center_ps=float(processed_peak["time_ps"]),
+            pre_ps=float(reference_pre_peak_ps),
+            post_ps=float(reference_post_peak_ps),
+        )
+        requested_reference_window_ps = [
+            float(processed_peak["time_ps"]) - float(reference_pre_peak_ps),
+            float(processed_peak["time_ps"]) + float(reference_post_peak_ps),
+        ]
+    else:
+        reference_mask, actual_reference_window_ps = _crop_mask(processed_time_ps, reference_window_ps)
+        requested_reference_window_ps = [float(reference_window_ps[0]), float(reference_window_ps[1])]
+
+    processed_reference_trace = _windowed_reference_trace(
+        processed_full_trace,
+        reference_mask,
+        taper=taper,
+    )
+    processed_sample_trace = (
+        processed_full_trace - processed_reference_trace
+        if bool(remove_reference_from_sample)
+        else processed_full_trace.copy()
+    )
+
+    processed_reference = TraceData(
+        time_ps=processed_time_ps.copy(),
+        trace=processed_reference_trace.copy(),
+        source_kind="processed_reference",
+        source_path=raw_sample.source_path,
+        metadata={
+            "baseline_subtract": resolved_baseline_mode != "none",
+            "baseline_window_samples": int(baseline_window_samples),
+            "baseline_mode": resolved_baseline_mode,
+            "baseline_value": float(baseline_value),
+            "crop_mode": resolved_crop_mode,
+            "crop_time_window_ps": list(actual_crop_window_ps),
+            "reference_window_ps": list(actual_reference_window_ps),
+            "reference_taper": str(taper),
+            "remove_reference_from_sample": bool(remove_reference_from_sample),
+        },
+    )
+    processed_sample = TraceData(
+        time_ps=processed_time_ps.copy(),
+        trace=processed_sample_trace.copy(),
+        source_kind="processed_sample",
+        source_path=raw_sample.source_path,
+        metadata={
+            "baseline_subtract": resolved_baseline_mode != "none",
+            "baseline_window_samples": int(baseline_window_samples),
+            "baseline_mode": resolved_baseline_mode,
+            "baseline_value": float(baseline_value),
+            "crop_mode": resolved_crop_mode,
+            "crop_time_window_ps": list(actual_crop_window_ps),
+            "reference_window_ps": list(actual_reference_window_ps),
+            "reference_taper": str(taper),
+            "remove_reference_from_sample": bool(remove_reference_from_sample),
+        },
+    )
+
+    warnings = []
+    if not _window_contains_peak(actual_crop_window_ps, peak_info):
+        warnings.append("Crop window excludes the dominant first reflection peak.")
+    if np.max(np.abs(processed_reference_trace)) <= 0.0:
+        warnings.append("Extracted first-peak reference trace is empty after windowing.")
+
+    return PreparedTracePair(
+        raw_reference=aligned_reference,
+        raw_sample=raw_sample,
+        aligned_reference=aligned_reference,
+        aligned_sample=aligned_sample,
+        processed_reference=processed_reference,
+        processed_sample=processed_sample,
+        metadata={
+            "construction": "reflection_first_peak_self_reference",
+            "common_time_window_ps": [float(raw_sample.time_min_ps), float(raw_sample.time_max_ps)],
+            "baseline_subtract": resolved_baseline_mode != "none",
+            "baseline_window_samples": int(baseline_window_samples),
+            "baseline_mode": resolved_baseline_mode,
+            "baseline_interval_ps": list(baseline_info["interval_ps"]),
+            "baseline_sample_count": int(baseline_info["sample_count"]),
+            "baseline_fallback_used": bool(baseline_info.get("fallback_used", False)),
+            "crop_mode": resolved_crop_mode,
+            "crop_time_window_ps": list(actual_crop_window_ps),
+            "requested_crop_time_window_ps": requested_crop_window_ps,
+            "raw_reference_peak": peak_info,
+            "raw_sample_peak": peak_info,
+            "aligned_reference_peak": peak_info,
+            "aligned_sample_peak": peak_info,
+            "processed_reference_peak_retained": bool(_window_contains_peak(actual_crop_window_ps, peak_info)),
+            "processed_sample_peak_retained": bool(_window_contains_peak(actual_crop_window_ps, peak_info)),
+            "reflection_self_reference_peak": processed_peak,
+            "reflection_self_reference_window_ps": list(actual_reference_window_ps),
+            "requested_reflection_self_reference_window_ps": requested_reference_window_ps,
+            "reference_taper": str(taper),
+            "remove_reference_from_sample": bool(remove_reference_from_sample),
+            "warnings": warnings,
+        },
+    )
+
+
 def plot_trace_pair_preview(prepared_traces: PreparedTracePair, *, display=True):
     metadata = dict(prepared_traces.metadata)
     crop_window = metadata.get(
@@ -481,6 +678,8 @@ def resolve_measurement_fit_parameters(measurement=None):
         angle_deg=0.0,
         polarization="s",
         polarization_mix=None,
+        trace_scale=1.0,
+        trace_offset=0.0,
         reference_standard=ReferenceStandard(kind="identity"),
     )
     if measurement is not None:
@@ -494,6 +693,8 @@ def resolve_measurement_fit_parameters(measurement=None):
         "angle_deg": measurement_obj.angle_deg,
         "polarization": measurement_obj.polarization,
         "polarization_mix": measurement_obj.polarization_mix,
+        "trace_scale": measurement_obj.trace_scale,
+        "trace_offset": measurement_obj.trace_offset,
         "reference_standard": measurement_obj.reference_standard,
     }
 
@@ -533,6 +734,27 @@ def resolve_measurement_fit_parameters(measurement=None):
             payload["polarization_mix"] = float(mix_value)
     elif payload["polarization_mix"] is not None:
         payload["polarization_mix"] = float(payload["polarization_mix"])
+
+    for path, unit, default_label in (
+        ("trace_scale", "", "measurement_trace_scale"),
+        ("trace_offset", "", "measurement_trace_offset"),
+    ):
+        value = payload[path]
+        if isinstance(value, Fit):
+            fit_parameters.append(
+                ResolvedMeasurementFitParameter(
+                    key=_measurement_fit_key(path, value.label),
+                    label=value.label or default_label,
+                    path=path,
+                    unit=unit,
+                    initial_value=float(value.initial),
+                    bound_min=float(value.resolved_min),
+                    bound_max=float(value.resolved_max),
+                )
+            )
+            payload[path] = float(value.initial)
+        else:
+            payload[path] = float(value)
 
     return Measurement(**payload), fit_parameters
 
@@ -605,6 +827,8 @@ def run_measured_fit(
     n_out=1.0,
     overlay_imported=True,
     delay_options=None,
+    weighting=None,
+    metric_options=None,
 ):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -623,6 +847,16 @@ def run_measured_fit(
         overlay_imported=overlay_imported,
     )
     resolved_measurement, measurement_fit_parameters = resolve_measurement_fit_parameters(measurement)
+    weighting = {} if weighting is None else dict(weighting)
+    objective_weights = None
+    if str(weighting.get("mode", "none")).strip().lower() != "none":
+        objective_weights = build_objective_weights(
+            prepared_traces.processed_sample.trace,
+            mode=weighting.get("mode", "trace_amplitude"),
+            floor=weighting.get("floor", 0.05),
+            power=weighting.get("power", 2.0),
+            smooth_window_samples=weighting.get("smooth_window_samples", 41),
+        )
     fit_result = fit_sample_trace(
         reference=reference_result,
         observed_trace=np.asarray(prepared_traces.processed_sample.trace, dtype=np.float64),
@@ -634,6 +868,8 @@ def run_measured_fit(
         optimizer=optimizer,
         measurement=resolved_measurement,
         delay_options=delay_options,
+        objective_weights=objective_weights,
+        metric_options=metric_options,
     )
 
     fit_dir = reference_result.run_dir / "measured_fit"
@@ -672,6 +908,8 @@ def run_measured_fit(
             "objective_value": float(fit_result["objective_value"]),
             "initial_objective_value": float(fit_result["initial_objective_value"]),
             "metric": str(fit_result["metric"]),
+            "metric_options": deepcopy(fit_result["metric_options"]),
+            "weighting": deepcopy(weighting),
             "initial_residual_metrics": deepcopy(fit_result["initial_residual_metrics"]),
             "residual_metrics": deepcopy(fit_result["residual_metrics"]),
         },
@@ -699,5 +937,7 @@ def run_measured_fit(
             "metric": str(metric),
             "max_internal_reflections": int(max_internal_reflections),
             "delay_options": None if delay_options is None else deepcopy(delay_options),
+            "weighting": deepcopy(weighting),
+            "metric_options": None if metric_options is None else deepcopy(metric_options),
         },
     )

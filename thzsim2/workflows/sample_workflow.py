@@ -30,6 +30,7 @@ from thzsim2.models import (
     ResolvedFitParameter,
     SampleLayerResult,
     SampleResult,
+    TwoDrude,
 )
 
 
@@ -254,6 +255,84 @@ def _resolve_material(layer: Layer, layer_index: int, freq_grid_thz, fit_registr
                     "eps_inf": eps_inf,
                     "plasma_freq_thz": plasma,
                     "gamma_thz": gamma,
+                },
+                "source_nk_file": None,
+            },
+        )
+
+    if isinstance(material, TwoDrude):
+        eps_inf, eps_fit = _resolve_value(
+            material.eps_inf,
+            path=f"{layer_path}.material.eps_inf",
+            unit="",
+            layer_name=layer.name,
+            fit_registry=fit_registry,
+            used_keys=used_keys,
+        )
+        plasma1, plasma1_fit = _resolve_value(
+            material.plasma_freq1_thz,
+            path=f"{layer_path}.material.plasma_freq1_thz",
+            unit="THz",
+            layer_name=layer.name,
+            fit_registry=fit_registry,
+            used_keys=used_keys,
+        )
+        gamma1, gamma1_fit = _resolve_value(
+            material.gamma1_thz,
+            path=f"{layer_path}.material.gamma1_thz",
+            unit="THz",
+            layer_name=layer.name,
+            fit_registry=fit_registry,
+            used_keys=used_keys,
+        )
+        plasma2, plasma2_fit = _resolve_value(
+            material.plasma_freq2_thz,
+            path=f"{layer_path}.material.plasma_freq2_thz",
+            unit="THz",
+            layer_name=layer.name,
+            fit_registry=fit_registry,
+            used_keys=used_keys,
+        )
+        gamma2, gamma2_fit = _resolve_value(
+            material.gamma2_thz,
+            path=f"{layer_path}.material.gamma2_thz",
+            unit="THz",
+            layer_name=layer.name,
+            fit_registry=fit_registry,
+            used_keys=used_keys,
+        )
+        for fit_parameter in (eps_fit, plasma1_fit, gamma1_fit, plasma2_fit, gamma2_fit):
+            if fit_parameter is not None:
+                layer_fit_parameters.append(fit_parameter)
+        resolved_material = TwoDrude(
+            eps_inf=eps_inf,
+            plasma_freq1_thz=plasma1,
+            gamma1_thz=gamma1,
+            plasma_freq2_thz=plasma2,
+            gamma2_thz=gamma2,
+        )
+        nk = evaluate_material_nk(freq_grid_thz, resolved_material)
+        return (
+            "TwoDrude",
+            [
+                _parameter_entry("eps_inf", eps_inf, "", eps_fit),
+                _parameter_entry("plasma_freq1_thz", plasma1, "THz", plasma1_fit),
+                _parameter_entry("gamma1_thz", gamma1, "THz", gamma1_fit),
+                _parameter_entry("plasma_freq2_thz", plasma2, "THz", plasma2_fit),
+                _parameter_entry("gamma2_thz", gamma2, "THz", gamma2_fit),
+            ],
+            np.real(nk),
+            np.imag(nk),
+            None,
+            layer_fit_parameters,
+            {
+                "kind": "TwoDrude",
+                "parameters": {
+                    "eps_inf": eps_inf,
+                    "plasma_freq1_thz": plasma1,
+                    "gamma1_thz": gamma1,
+                    "plasma_freq2_thz": plasma2,
+                    "gamma2_thz": gamma2,
                 },
                 "source_nk_file": None,
             },

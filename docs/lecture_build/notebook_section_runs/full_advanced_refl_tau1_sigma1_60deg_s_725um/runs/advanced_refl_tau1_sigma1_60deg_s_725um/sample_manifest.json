@@ -1,0 +1,227 @@
+{
+  "schema_name": "thzsim2.sample_manifest",
+  "schema_version": "1.0",
+  "created_at": "2026-04-23T16:44:55.336158+02:00",
+  "workflow": "sample",
+  "units": {
+    "time": "ps",
+    "frequency": "THz",
+    "thickness": "um",
+    "conductivity": "S/m"
+  },
+  "grid": {
+    "source": "reference.spectrum.freq_thz",
+    "sample_count": 512,
+    "freq_min_thz": 0.0,
+    "freq_max_thz": 16.634114583333194
+  },
+  "ambient_media": {
+    "n_in": 1.0,
+    "n_out": 1.0
+  },
+  "layers": [
+    {
+      "index": 0,
+      "name": "epi",
+      "thickness_um": 70.0,
+      "thickness_fit": {
+        "key": "epi_thickness_um",
+        "label": "epi_thickness_um",
+        "path": "layers[0].thickness_um",
+        "bound_min": 65.0,
+        "bound_max": 75.0
+      },
+      "material_kind": "TwoDrude",
+      "parameters": [
+        {
+          "name": "eps_inf",
+          "value": 11.7,
+          "unit": "",
+          "fit": null
+        },
+        {
+          "name": "plasma_freq1_thz",
+          "value": 0.6953905036659745,
+          "unit": "THz",
+          "fit": {
+            "key": "epi_plasma1_thz",
+            "label": "epi_plasma1_thz",
+            "path": "layers[0].material.plasma_freq1_thz",
+            "bound_min": 0.005348669543041127,
+            "bound_max": 5.348669543041127
+          }
+        },
+        {
+          "name": "gamma1_thz",
+          "value": 0.8507189549448236,
+          "unit": "THz",
+          "fit": {
+            "key": "epi_gamma1_thz",
+            "label": "epi_gamma1_thz",
+            "path": "layers[0].material.gamma1_thz",
+            "bound_min": 0.15915494309189535,
+            "bound_max": 1.5915494309189535
+          }
+        },
+        {
+          "name": "plasma_freq2_thz",
+          "value": 1.5750083350863051,
+          "unit": "THz",
+          "fit": {
+            "key": "epi_plasma2_thz",
+            "label": "epi_plasma2_thz",
+            "path": "layers[0].material.plasma_freq2_thz",
+            "bound_min": 0.005348669543041127,
+            "bound_max": 5.348669543041127
+          }
+        },
+        {
+          "name": "gamma2_thz",
+          "value": 0.19516831336626406,
+          "unit": "THz",
+          "fit": {
+            "key": "epi_gamma2_thz",
+            "label": "epi_gamma2_thz",
+            "path": "layers[0].material.gamma2_thz",
+            "bound_min": 0.15915494309189535,
+            "bound_max": 1.5915494309189535
+          }
+        }
+      ],
+      "source_nk_file": null,
+      "export_nk_csv": "layer_01_epi_nk.csv"
+    },
+    {
+      "index": 1,
+      "name": "oxide",
+      "thickness_um": 10.0,
+      "thickness_fit": {
+        "key": "oxide_thickness_um",
+        "label": "oxide_thickness_um",
+        "path": "layers[1].thickness_um",
+        "bound_min": 8.0,
+        "bound_max": 12.0
+      },
+      "material_kind": "ConstantNK",
+      "parameters": [
+        {
+          "name": "n",
+          "value": 1.95,
+          "unit": "",
+          "fit": null
+        },
+        {
+          "name": "k",
+          "value": 0.005,
+          "unit": "",
+          "fit": null
+        }
+      ],
+      "source_nk_file": null,
+      "export_nk_csv": "layer_02_oxide_nk.csv"
+    },
+    {
+      "index": 2,
+      "name": "substrate",
+      "thickness_um": 725.0,
+      "thickness_fit": null,
+      "material_kind": "ConstantNK",
+      "parameters": [
+        {
+          "name": "n",
+          "value": 3.42,
+          "unit": "",
+          "fit": null
+        },
+        {
+          "name": "k",
+          "value": 0.005,
+          "unit": "",
+          "fit": null
+        }
+      ],
+      "source_nk_file": null,
+      "export_nk_csv": "layer_03_substrate_nk.csv"
+    }
+  ],
+  "fit_parameters": [
+    {
+      "key": "epi_thickness_um",
+      "label": "epi_thickness_um",
+      "path": "layers[0].thickness_um",
+      "unit": "um",
+      "initial_value": 70.0,
+      "bound_min": 65.0,
+      "bound_max": 75.0,
+      "layer_name": "epi"
+    },
+    {
+      "key": "epi_plasma1_thz",
+      "label": "epi_plasma1_thz",
+      "path": "layers[0].material.plasma_freq1_thz",
+      "unit": "THz",
+      "initial_value": 0.6953905036659745,
+      "bound_min": 0.005348669543041127,
+      "bound_max": 5.348669543041127,
+      "layer_name": "epi"
+    },
+    {
+      "key": "epi_gamma1_thz",
+      "label": "epi_gamma1_thz",
+      "path": "layers[0].material.gamma1_thz",
+      "unit": "THz",
+      "initial_value": 0.8507189549448236,
+      "bound_min": 0.15915494309189535,
+      "bound_max": 1.5915494309189535,
+      "layer_name": "epi"
+    },
+    {
+      "key": "epi_plasma2_thz",
+      "label": "epi_plasma2_thz",
+      "path": "layers[0].material.plasma_freq2_thz",
+      "unit": "THz",
+      "initial_value": 1.5750083350863051,
+      "bound_min": 0.005348669543041127,
+      "bound_max": 5.348669543041127,
+      "layer_name": "epi"
+    },
+    {
+      "key": "epi_gamma2_thz",
+      "label": "epi_gamma2_thz",
+      "path": "layers[0].material.gamma2_thz",
+      "unit": "THz",
+      "initial_value": 0.19516831336626406,
+      "bound_min": 0.15915494309189535,
+      "bound_max": 1.5915494309189535,
+      "layer_name": "epi"
+    },
+    {
+      "key": "oxide_thickness_um",
+      "label": "oxide_thickness_um",
+      "path": "layers[1].thickness_um",
+      "unit": "um",
+      "initial_value": 10.0,
+      "bound_min": 8.0,
+      "bound_max": 12.0,
+      "layer_name": "oxide"
+    }
+  ],
+  "files": {
+    "sample_structure_txt": "sample_structure.txt",
+    "sample_nk_png": "sample_nk.png",
+    "layer_nk_csvs": [
+      {
+        "name": "epi",
+        "path": "layer_01_epi_nk.csv"
+      },
+      {
+        "name": "oxide",
+        "path": "layer_02_oxide_nk.csv"
+      },
+      {
+        "name": "substrate",
+        "path": "layer_03_substrate_nk.csv"
+      }
+    ]
+  }
+}

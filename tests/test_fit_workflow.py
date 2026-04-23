@@ -4,11 +4,22 @@ import numpy as np
 import pytest
 
 from thzsim2.core.forward import simulate_sample_from_reference
-from thzsim2.core.fitting import fit_sample_trace, shift_trace_in_time
-from thzsim2.models import ConstantNK, Drude, Fit, Layer, Measurement, PreparedTracePair
-from thzsim2.workflows.fit_setup import build_fit_setup, run_measured_fit_from_setup_json, write_fit_setup_json
+from thzsim2.core.fitting import (
+    drude_gamma_thz_from_tau_ps,
+    drude_plasma_freq_thz_from_sigma_tau,
+    fit_sample_trace,
+    shift_trace_in_time,
+)
+from thzsim2.models import ConstantNK, Drude, Fit, Layer, Measurement, PreparedTracePair, ReferenceStandard, TraceData, TwoDrude
+from thzsim2.workflows.fit_setup import (
+    build_fit_setup,
+    run_fit_from_setup_json,
+    run_measured_fit_from_setup_json,
+    write_fit_setup_json,
+)
 from thzsim2.workflows.fit_workflow import (
     plot_trace_pair_preview,
+    prepare_reflection_first_peak_pair,
     prepare_trace_pair_for_fit,
     resolve_measurement_fit_parameters,
     run_measured_fit,
@@ -49,6 +60,60 @@ def _prepared_pair(reference_trace, sample_trace):
 
 def _data_root():
     return Path(__file__).resolve().parents[1] / "Test_data_for_fitter"
+
+
+def test_prepare_reflection_first_peak_pair_extracts_reference_window():
+    time_ps = np.linspace(-5.0, 25.0, 601)
+    first_peak = 1.0 * np.exp(-0.5 * ((time_ps - 2.0) / 0.35) ** 2)
+    second_peak = 0.55 * np.exp(-0.5 * ((time_ps - 9.5) / 0.7) ** 2)
+    tail = 0.08 * np.exp(-0.5 * ((time_ps - 16.0) / 1.8) ** 2)
+    trace = first_peak + second_peak + tail
+    trace_data = TraceData(time_ps=time_ps, trace=trace, source_kind="synthetic_reflection")
+
+    prepared = prepare_reflection_first_peak_pair(
+        trace_data,
+        baseline_mode="none",
+        crop_mode="manual",
+        crop_time_window_ps=(-2.0, 22.0),
+        reference_pre_peak_ps=0.8,
+        reference_post_peak_ps=2.0,
+        taper="hann",
+        remove_reference_from_sample=True,
+    )
+
+    assert prepared.metadata["construction"] == "reflection_first_peak_self_reference"
+    assert prepared.processed_reference.time_ps.shape == prepared.processed_sample.time_ps.shape
+    assert prepared.metadata["reflection_self_reference_window_ps"][0] < prepared.metadata["reflection_self_reference_peak"]["time_ps"]
+    assert prepared.metadata["reflection_self_reference_window_ps"][1] > prepared.metadata["reflection_self_reference_peak"]["time_ps"]
+    assert np.max(np.abs(prepared.processed_reference.trace)) > 0.0
+    assert np.max(np.abs(prepared.processed_sample.trace)) < np.max(np.abs(trace))
+
+
+def test_prepare_reflection_first_peak_pair_runs_on_measured_example_when_available():
+    sample_csv = (
+        _data_root()
+        / "A11008858_reflection"
+        / "reflection_setup_sample_A1100858_avg600_onDryAir10min_int27.csv"
+    )
+    if not sample_csv.exists():
+        pytest.skip("Test_data_for_fitter reflection sample is not available")
+
+    prepared = prepare_reflection_first_peak_pair(
+        sample_csv,
+        baseline_mode="auto_pre_pulse",
+        baseline_window_samples=40,
+        crop_mode="auto",
+        reference_pre_peak_ps=0.8,
+        reference_post_peak_ps=3.0,
+        taper="hann",
+        remove_reference_from_sample=True,
+    )
+
+    assert prepared.metadata["reflection_self_reference_peak"]["abs_value"] > 0.0
+    assert len(prepared.metadata["warnings"]) == 0
+    assert prepared.processed_reference.sample_count == prepared.processed_sample.sample_count
+    assert np.isfinite(prepared.processed_reference.trace).all()
+    assert np.isfinite(prepared.processed_sample.trace).all()
 
 
 def test_resolve_measurement_fit_parameters_extracts_angle_and_mix():
@@ -188,6 +253,134 @@ def test_run_measured_fit_recovers_easy_low_noise_synthetic_drude_case(tmp_path)
     assert recovered["film_thickness_um"] == pytest.approx(550.0, abs=1.0)
     assert recovered["film_plasma_freq_thz"] == pytest.approx(1.2, abs=0.02)
     assert recovered["film_gamma_thz"] == pytest.approx(0.8, abs=0.03)
+
+
+def test_run_measured_fit_supports_easy_low_noise_synthetic_two_drude_case(tmp_path):
+    reference_input = generate_reference_pulse(
+        model="sech_carrier",
+        sample_count=1024,
+        dt_ps=0.03,
+        time_center_ps=20.0,
+        pulse_center_ps=10.0,
+        tau_ps=0.22,
+        f0_thz=0.9,
+        amp=1.0,
+        phi_rad=0.0,
+    )
+    reference_result = prepare_reference(reference_input, output_root=tmp_path, run_label="synthetic-two-drude-fit")
+    true_sample = build_sample(
+        layers=[
+            Layer(
+                name="epi",
+                thickness_um=42.0,
+                material=TwoDrude(
+                    eps_inf=10.9,
+                    plasma_freq1_thz=0.95,
+                    gamma1_thz=0.42,
+                    plasma_freq2_thz=2.3,
+                    gamma2_thz=3.1,
+                ),
+            )
+        ],
+        reference=reference_result,
+        out_dir=reference_result.run_dir / "true_sample",
+    )
+    observed_trace = simulate_sample_from_reference(
+        reference_result,
+        true_sample.resolved_stack,
+        measurement=Measurement(mode="transmission", angle_deg=0.0, polarization="s"),
+    )["sample_trace"]
+    observed_trace = observed_trace + np.random.default_rng(321).normal(
+        scale=2e-5 * np.max(np.abs(observed_trace)),
+        size=observed_trace.size,
+    )
+
+    result = run_measured_fit(
+        _prepared_pair(reference_result.trace, observed_trace),
+        layers=[
+            Layer(
+                name="epi",
+                thickness_um=42.0,
+                material=TwoDrude(
+                    eps_inf=10.9,
+                    plasma_freq1_thz=Fit(0.9, abs_min=0.8, abs_max=1.05, label="epi_plasma1_thz"),
+                    gamma1_thz=0.42,
+                    plasma_freq2_thz=2.3,
+                    gamma2_thz=3.1,
+                ),
+            )
+        ],
+        out_dir=tmp_path / "synthetic_two_drude_fit",
+        measurement=Measurement(mode="transmission", angle_deg=0.0, polarization="s"),
+        optimizer={
+            "method": "L-BFGS-B",
+            "options": {"maxiter": 120},
+            "global_options": {"maxiter": 6, "popsize": 8, "seed": 321},
+            "fd_rel_step": 1e-5,
+        },
+        max_internal_reflections=2,
+    )
+
+    recovered = result.fit_result["recovered_parameters"]
+    assert result.fit_result["residual_metrics"]["data_fit"] < 0.035
+    assert recovered["epi_plasma1_thz"] == pytest.approx(0.95, abs=0.04)
+
+
+def test_two_drude_multilayer_reflection_standard_stays_finite(tmp_path):
+    reference_result = prepare_reference(
+        generate_reference_pulse(
+            model="sech_carrier",
+            sample_count=512,
+            dt_ps=0.03,
+            time_center_ps=10.0,
+            pulse_center_ps=5.0,
+            tau_ps=0.22,
+            f0_thz=0.9,
+            amp=1.0,
+            phi_rad=0.0,
+        ),
+        output_root=tmp_path,
+        run_label="two-drude-multilayer",
+    )
+    sample_result = build_sample(
+        layers=[
+            Layer(
+                name="epi",
+                thickness_um=42.0,
+                material=TwoDrude(
+                    eps_inf=10.5,
+                    plasma_freq1_thz=drude_plasma_freq_thz_from_sigma_tau(8.0, 0.25),
+                    gamma1_thz=drude_gamma_thz_from_tau_ps(0.25),
+                    plasma_freq2_thz=drude_plasma_freq_thz_from_sigma_tau(20.0, 0.08),
+                    gamma2_thz=drude_gamma_thz_from_tau_ps(0.08),
+                ),
+            ),
+            Layer(name="oxide", thickness_um=5.0, material=ConstantNK(n=1.95, k=0.005)),
+        ],
+        reference=reference_result,
+        out_dir=reference_result.run_dir / "sample",
+        n_out=3.42,
+    )
+    reference_standard = build_sample(
+        layers=[Layer(name="oxide", thickness_um=5.0, material=ConstantNK(n=1.95, k=0.005))],
+        reference=reference_result,
+        out_dir=reference_result.run_dir / "reference_standard",
+        n_out=3.42,
+    )
+    simulation = simulate_sample_from_reference(
+        reference_result,
+        sample_result.resolved_stack,
+        measurement=Measurement(
+            mode="reflection",
+            angle_deg=45.0,
+            polarization="s",
+            reference_standard=ReferenceStandard(kind="stack", stack=reference_standard),
+        ),
+        max_internal_reflections=0,
+    )
+
+    assert np.isfinite(simulation["sample_trace"]).all()
+    assert np.isfinite(simulation["transfer_function"]).all()
 
 
 @pytest.mark.parametrize("shift_ps", [50.0, 200.0])
@@ -473,6 +666,69 @@ def test_fit_setup_json_round_trip_runs_smoke_fit(tmp_path):
     assert result.artifact_paths["measured_fit_summary_json"].exists()
 
 
+def test_fit_setup_json_round_trip_runs_staged_fit(tmp_path):
+    data_root = _data_root()
+    reference_csv = data_root / "A11008858_transmission" / "REFERENCE.csv"
+    sample_csv = data_root / "A11008858_transmission" / "SAMPLE.csv"
+    if not reference_csv.exists() or not sample_csv.exists():
+        pytest.skip("Test_data_for_fitter transmission pair is not available")
+
+    setup = build_fit_setup(
+        reference_trace={"path": reference_csv},
+        sample_trace={"path": sample_csv},
+        preprocessing={
+            "baseline_mode": "auto_pre_pulse",
+            "baseline_window_samples": 40,
+            "crop_mode": "auto",
+        },
+        layers=[
+            Layer(
+                name="drude_layer",
+                thickness_um=Fit(625.0, abs_min=500.0, abs_max=750.0, label="film_thickness_um"),
+                material=Drude(
+                    eps_inf=Fit(11.0, abs_min=8.0, abs_max=14.0, label="film_eps_inf"),
+                    plasma_freq_thz=Fit(1.1, abs_min=0.1, abs_max=3.0, label="film_plasma_freq_thz"),
+                    gamma_thz=Fit(0.08, abs_min=0.005, abs_max=0.5, label="film_gamma_thz"),
+                ),
+            )
+        ],
+        measurement=Measurement(
+            mode="transmission",
+            angle_deg=0.0,
+            polarization="s",
+            reference_standard={"kind": "ambient_replacement"},
+        ),
+        optimizer=None,
+        metric="weighted_data_fit",
+        weighting={
+            "mode": "trace_amplitude",
+            "floor": 0.03,
+            "power": 2.0,
+            "smooth_window_samples": 31,
+        },
+        fit_strategy="staged_balanced",
+        reflection_counts=(0, 2),
+        stage_sequence=[
+            {
+                "name": "quick_local",
+                "metric": "weighted_data_fit",
+                "optimizer": {
+                    "global_method": "none",
+                    "method": "L-BFGS-B",
+                    "options": {"maxiter": 6},
+                    "fd_rel_step": 1e-4,
+                },
+            }
+        ],
+        out_dir=tmp_path / "staged_fit_from_json",
+    )
+    setup_path = write_fit_setup_json(tmp_path / "staged_fit_setup.json", setup)
+    result = run_fit_from_setup_json(setup_path)
+
+    assert result["best_fit_result"]["selection_reason"]
+    assert result["best_reflection_result"]["max_internal_reflections"] in {0, 2}
+
+
 def test_run_measured_fit_reflection_smoke_on_example_pair(tmp_path):
     data_root = _data_root() / "A11008858_reflection"
     reference_csv = data_root / "reflection_setup_ref_after_with_AuMirror_A1100858_avg600_onDryAir10min_int55.csv"
@@ -587,3 +843,67 @@ def test_measured_reflection_examples_improve_with_delay_recovery(tmp_path, fold
     assert result.fit_result["residual_metrics"]["data_fit"] < 0.5
     assert result.fit_result["residual_metrics"]["data_fit"] < 0.25 * result.fit_result["initial_objective_value"]
     assert abs(result.fit_result["delay_recovery"]["fitted_delay_ps"]) > 5.0
+
+
+def test_a11013460_reflection_pair_supports_small_residual_with_nuisance_terms(tmp_path):
+    data_root = _data_root() / "A11013460_reflection"
+    reference_csv = data_root / "reflection_setup_ref_after_with_AuMirror_A11013460_avg600_onDryAir10min_int56.csv"
+    sample_csv = data_root / "reflection_setup_sample_A11013460_avg600_onDryAir10min_int30.csv"
+    if not reference_csv.exists() or not sample_csv.exists():
+        pytest.skip("Test_data_for_fitter A11013460 reflection pair is not available")
+
+    prepared = prepare_trace_pair_for_fit(
+        reference_csv,
+        sample_csv,
+        baseline_mode="auto_pre_pulse",
+        baseline_window_samples=40,
+        crop_mode="auto",
+    )
+    result = run_measured_fit(
+        prepared,
+        layers=[
+            Layer(
+                name="wafer",
+                thickness_um=Fit(625.0, abs_min=575.0, abs_max=675.0, label="wafer_thickness_um"),
+                material=Drude(
+                    eps_inf=Fit(11.7, abs_min=4.0, abs_max=20.0, label="wafer_eps_inf"),
+                    plasma_freq_thz=Fit(
+                        drude_plasma_freq_thz_from_sigma_tau(100.0 / 67.0, 0.25),
+                        abs_min=0.01,
+                        abs_max=4.0,
+                        label="wafer_plasma_freq_thz",
+                    ),
+                    gamma_thz=Fit(
+                        drude_gamma_thz_from_tau_ps(0.25),
+                        abs_min=0.01,
+                        abs_max=4.0,
+                        label="wafer_gamma_thz",
+                    ),
+                ),
+            )
+        ],
+        out_dir=tmp_path / "a11013460_reflection_best_fit",
+        measurement=Measurement(
+            mode="reflection",
+            angle_deg=Fit(10.0, abs_min=0.0, abs_max=45.0, label="measurement_angle_deg"),
+            polarization="mixed",
+            polarization_mix=Fit(0.5, abs_min=0.0, abs_max=1.0, label="measurement_polarization_mix"),
+            trace_scale=Fit(-1.0, abs_min=-2.5, abs_max=0.5, label="measurement_trace_scale"),
+            trace_offset=Fit(0.0, abs_min=-1.0, abs_max=1.0, label="measurement_trace_offset"),
+            reference_standard={"kind": "identity"},
+        ),
+        optimizer={
+            "method": "L-BFGS-B",
+            "options": {"maxiter": 180},
+            "global_options": {"maxiter": 10, "popsize": 10, "seed": 123},
+            "fd_rel_step": 1e-5,
+        },
+        max_internal_reflections=2,
+        delay_options={"enabled": True, "search_window_ps": 20.0, "initial_ps": 0.0},
+        weighting={"mode": "trace_amplitude", "floor": 0.03, "power": 2.0, "smooth_window_samples": 41},
+        metric="weighted_data_fit",
+    )
+
+    max_abs_residual = float(np.max(np.abs(result.fit_result["residual_trace"])))
+    assert result.fit_result["residual_metrics"]["data_fit"] < 0.02
+    assert max_abs_residual < 3.0

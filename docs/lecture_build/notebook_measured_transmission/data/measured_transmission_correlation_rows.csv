@@ -1,0 +1,17 @@
+param_i,param_j,correlation
+wafer_thickness_um,wafer_thickness_um,1.0
+wafer_thickness_um,wafer_plasma_freq_thz,0.047512991975132195
+wafer_thickness_um,wafer_gamma_thz,-0.24632303723062418
+wafer_thickness_um,delta_t_ps,-0.712079556602277
+wafer_plasma_freq_thz,wafer_thickness_um,0.047512991975132195
+wafer_plasma_freq_thz,wafer_plasma_freq_thz,1.0
+wafer_plasma_freq_thz,wafer_gamma_thz,0.6314797334440403
+wafer_plasma_freq_thz,delta_t_ps,0.10199496889364439
+wafer_gamma_thz,wafer_thickness_um,-0.24632303723062418
+wafer_gamma_thz,wafer_plasma_freq_thz,0.6314797334440403
+wafer_gamma_thz,wafer_gamma_thz,1.0
+wafer_gamma_thz,delta_t_ps,-0.021801068128157616
+delta_t_ps,wafer_thickness_um,-0.712079556602277
+delta_t_ps,wafer_plasma_freq_thz,0.10199496889364439
+delta_t_ps,wafer_gamma_thz,-0.021801068128157616
+delta_t_ps,delta_t_ps,1.0

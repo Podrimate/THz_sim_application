@@ -1,0 +1,12 @@
+parameter              value                unit
+---------------------  -------------------  ----
+dt_ps                  0.03000000000000025  ps
+sample_count           1024                 count
+time_min_ps            2.6549999999999994   ps
+time_max_ps            33.345               ps
+amplitude_scale        0.9940931399905103   a.u.
+pulse_center_ps        8.985                ps
+freq_min_thz           0.0                  THz
+freq_max_thz           16.634114583333194   THz
+peak_freq_thz          0.8789062499999927   THz
+spectral_centroid_thz  0.9767578462586181   THz

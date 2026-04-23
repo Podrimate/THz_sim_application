@@ -1,0 +1,89 @@
+{
+  "dataset": "A11013460_reflection",
+  "reference": "reflection_setup_ref_after_with_AuMirror_A11013460_avg600_onDryAir10min_int56.csv",
+  "sample": "reflection_setup_sample_A11013460_avg600_onDryAir10min_int30.csv",
+  "construction": "mirror_reference_pair",
+  "prepared_metadata": {
+    "common_time_window_ps": [
+      1015.0,
+      1215.0
+    ],
+    "baseline_subtract": true,
+    "baseline_window_samples": 40,
+    "baseline_mode": "auto_pre_pulse",
+    "baseline_interval_ps": [
+      1025.65,
+      1030.65
+    ],
+    "baseline_sample_count": 101,
+    "baseline_fallback_used": false,
+    "crop_mode": "auto",
+    "crop_time_window_ps": [
+      1023.7,
+      1063.8
+    ],
+    "requested_crop_time_window_ps": [
+      1023.6500000000001,
+      1063.8
+    ],
+    "raw_reference_peak": {
+      "index": 333,
+      "time_ps": 1031.65,
+      "value": -28.31289332000038,
+      "abs_value": 28.31289332000038
+    },
+    "raw_sample_peak": {
+      "index": 376,
+      "time_ps": 1033.8,
+      "value": -15.808496120000063,
+      "abs_value": 15.808496120000063
+    },
+    "aligned_reference_peak": {
+      "index": 333,
+      "time_ps": 1031.65,
+      "value": -28.31289332000038,
+      "abs_value": 28.31289332000038
+    },
+    "aligned_sample_peak": {
+      "index": 376,
+      "time_ps": 1033.8,
+      "value": -15.808496120000063,
+      "abs_value": 15.808496120000063
+    },
+    "processed_reference_peak_retained": true,
+    "processed_sample_peak_retained": true,
+    "warnings": []
+  },
+  "residual_metrics": {
+    "data_fit": 0.00452712545415936,
+    "weighted_data_fit": 0.002000220791703325,
+    "mse": 0.03284302365172091,
+    "normalized_mse": 0.00013488146343206036,
+    "relative_l2": 0.06728391675697366,
+    "relative_lp": 3.3153537367861445e-11,
+    "hybrid_transfer": 22.61282231921427,
+    "transfer_amplitude_mse": 0.35228864405672355,
+    "transfer_phase_mse": 22.258533454365843,
+    "residual_rms": 0.18122644302562724,
+    "fit_sigma": 0.061163922066830904,
+    "snr_db": 23.441774703171593
+  },
+  "max_abs_residual": 0.8994746665156468,
+  "fitted_measurement": {
+    "angle_deg": 21.580633269005986,
+    "polarization_mix": 0.0,
+    "trace_scale": -0.9620126040201074,
+    "trace_offset": 0.10377547956897233
+  },
+  "recovered_parameters": {
+    "wafer_thickness_um": 659.0770886242962,
+    "wafer_eps_inf": 10.48131408329853,
+    "wafer_plasma_freq_thz": 0.1173631866277683,
+    "wafer_gamma_thz": 0.2517985515458883,
+    "measurement_angle_deg": 21.580633269005986,
+    "measurement_polarization_mix": 0.0,
+    "measurement_trace_scale": -0.9620126040201074,
+    "measurement_trace_offset": 0.10377547956897233,
+    "delta_t_ps": 2.104184491075522
+  }
+}

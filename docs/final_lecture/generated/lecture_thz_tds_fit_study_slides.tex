@@ -1,0 +1,92 @@
+\documentclass[aspectratio=169]{beamer}
+\usetheme{Madrid}
+\usecolortheme{beaver}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\graphicspath{{docs/lecture_build/latest/figures/}}
+\title{THz-TDS Time-Domain Fit and Study}
+\author{THzSim2 Lecture Package}
+\date{\today}
+\begin{document}
+
+\begin{frame}
+\titlepage
+\end{frame}
+
+\begin{frame}{Why Time-Domain Fit Matters}
+\begin{itemize}
+\item THz-TDS measures a waveform, not only a magnitude spectrum.
+\item Time-domain fitting uses amplitude, phase, timing, and echo structure together.
+\item This is stronger than fitting only $|T(\omega)|$ or an extracted refractive-index curve.
+\item The residual trace shows where the physics is missing, not only how large the error is.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Why Study Matters}
+\begin{itemize}
+\item A study sweeps true parameters, simulates traces, refits them, and records the outcome.
+\item The result is an identifiability map: easy regions, ambiguous regions, angle sensitivity, and failure modes.
+\item This is especially useful before industrial deployment of a fit workflow.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Core Theory}
+\[
+\hat{E}_{\mathrm{sam}}(\omega)=H(\omega)\hat{E}_{\mathrm{ref}}(\omega)
+\]
+\[
+\varepsilon_{\mathrm{Drude}}(\omega)=\varepsilon_\infty-\frac{\omega_p^2}{\omega(\omega+i\gamma)}
+\]
+\[
+\varepsilon_{\mathrm{TwoDrude}}(\omega)=\varepsilon_\infty-\frac{\omega_{p1}^2}{\omega(\omega+i\gamma_1)}-\frac{\omega_{p2}^2}{\omega(\omega+i\gamma_2)}
+\]
+\[
+\sigma = \varepsilon_0 \frac{\omega_p^2}{\gamma}, \qquad \tau = \frac{1}{\gamma}
+\]
+\end{frame}
+
+\begin{frame}{Measured Fit Example: Strong Case}
+\centering
+\includegraphics[width=\linewidth]{fit_a11013460_overview.pdf}
+\end{frame}
+
+\begin{frame}{Measured Fit Example: Challenging Case}
+\centering
+\includegraphics[width=\linewidth]{fit_a11008858_overview.pdf}
+\end{frame}
+
+\begin{frame}{Synthetic Reflection Example}
+\centering
+\includegraphics[width=\linewidth]{reflection_synthetic_overview.pdf}
+\end{frame}
+
+\begin{frame}{One-Layer Drude Study}
+\centering
+\includegraphics[width=0.82\linewidth]{one_layer_tau_sigma_tx_s_0deg.pdf}
+\end{frame}
+
+\begin{frame}{Angle Sensitivity in Transmission}
+\centering
+\includegraphics[width=0.82\linewidth]{one_layer_tau_sigma_tx_s_45deg.pdf}
+\end{frame}
+
+\begin{frame}{Advanced Epi Study: Carrier 1}
+\centering
+\includegraphics[width=0.82\linewidth]{advanced_tau1_sigma1_tx_s_30deg.pdf}
+\end{frame}
+
+\begin{frame}{Advanced Epi Study: Carrier 2 in Reflection}
+\centering
+\includegraphics[width=0.82\linewidth]{advanced_tau2_sigma2_refl_s_45deg.pdf}
+\end{frame}
+
+\begin{frame}{Main Lessons}
+\begin{itemize}
+\item Time-domain fit is powerful because it uses the whole waveform.
+\item Residual traces are physical diagnostics, not just scalar errors.
+\item Studies reveal which parameters are truly recoverable with a given geometry.
+\item Transmission and reflection answer different questions and require different standards.
+\end{itemize}
+\end{frame}
+
+\end{document}

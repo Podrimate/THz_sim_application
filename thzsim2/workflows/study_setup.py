@@ -22,6 +22,7 @@ from thzsim2.models import (
     Measurement,
     NKFile,
     ReferenceStandard,
+    TwoDrude,
 )
 from thzsim2.io.manifests import write_json
 from thzsim2.workflows.reference import generate_reference_pulse, load_reference_csv, prepare_reference
@@ -135,6 +136,15 @@ def _material_to_config(material):
             "plasma_freq_thz": _parameter_to_config(material.plasma_freq_thz),
             "gamma_thz": _parameter_to_config(material.gamma_thz),
         }
+    if isinstance(material, TwoDrude):
+        return {
+            "kind": "TwoDrude",
+            "eps_inf": _parameter_to_config(material.eps_inf),
+            "plasma_freq1_thz": _parameter_to_config(material.plasma_freq1_thz),
+            "gamma1_thz": _parameter_to_config(material.gamma1_thz),
+            "plasma_freq2_thz": _parameter_to_config(material.plasma_freq2_thz),
+            "gamma2_thz": _parameter_to_config(material.gamma2_thz),
+        }
     if isinstance(material, Lorentz):
         return {
             "kind": "Lorentz",
@@ -203,12 +213,13 @@ def _reference_standard_to_config(reference_standard):
     if reference_standard is None:
         return {"kind": "identity"}
     if isinstance(reference_standard, ReferenceStandard):
-        if reference_standard.kind == "identity":
-            return {"kind": "identity"}
+        if reference_standard.kind in {"identity", "ambient_replacement"}:
+            return {"kind": reference_standard.kind}
         stack = reference_standard.stack
     elif isinstance(reference_standard, dict):
-        if str(reference_standard.get("kind", "identity")).strip().lower() == "identity":
-            return {"kind": "identity"}
+        kind = str(reference_standard.get("kind", "identity")).strip().lower()
+        if kind in {"identity", "ambient_replacement"}:
+            return {"kind": kind}
         stack = reference_standard.get("stack")
     else:
         raise TypeError("reference_standard must be a ReferenceStandard, dictionary, or None")
@@ -240,6 +251,11 @@ def _measurement_to_config(measurement):
                 payload["polarization_mix"],
                 path="measurement.polarization_mix",
             )
+        payload["trace_scale"] = _parameter_from_config(payload.get("trace_scale", 1.0), path="measurement.trace_scale")
+        payload["trace_offset"] = _parameter_from_config(
+            payload.get("trace_offset", 0.0),
+            path="measurement.trace_offset",
+        )
         measurement = Measurement(**payload)
     if isinstance(measurement, Measurement):
         return {
@@ -249,6 +265,8 @@ def _measurement_to_config(measurement):
             "polarization_mix": _parameter_to_config(measurement.polarization_mix)
             if measurement.polarization_mix is not None
             else None,
+            "trace_scale": _parameter_to_config(measurement.trace_scale),
+            "trace_offset": _parameter_to_config(measurement.trace_offset),
             "reference_standard": _reference_standard_to_config(measurement.reference_standard),
         }
     raise TypeError("measurement must be a Measurement, dictionary, or None")
@@ -419,6 +437,29 @@ def _material_from_config(config, *, path="material"):
             plasma_freq_thz=_parameter_from_config(config["plasma_freq_thz"], path=f"{path}.plasma_freq_thz"),
             gamma_thz=_parameter_from_config(config["gamma_thz"], path=f"{path}.gamma_thz"),
         )
+    if kind == "TwoDrude":
+        for field_name in (
+            "eps_inf",
+            "plasma_freq1_thz",
+            "gamma1_thz",
+            "plasma_freq2_thz",
+            "gamma2_thz",
+        ):
+            if field_name not in config:
+                raise ValueError(f"{path}.{field_name} is required for kind='TwoDrude'")
+        return TwoDrude(
+            eps_inf=_parameter_from_config(config["eps_inf"], path=f"{path}.eps_inf"),
+            plasma_freq1_thz=_parameter_from_config(
+                config["plasma_freq1_thz"],
+                path=f"{path}.plasma_freq1_thz",
+            ),
+            gamma1_thz=_parameter_from_config(config["gamma1_thz"], path=f"{path}.gamma1_thz"),
+            plasma_freq2_thz=_parameter_from_config(
+                config["plasma_freq2_thz"],
+                path=f"{path}.plasma_freq2_thz",
+            ),
+            gamma2_thz=_parameter_from_config(config["gamma2_thz"], path=f"{path}.gamma2_thz"),
+        )
     if kind == "Lorentz":
         for field_name in ("eps_inf", "delta_eps", "resonance_thz", "gamma_thz"):
             if field_name not in config:
@@ -496,10 +537,14 @@ def _measurement_from_config(measurement_config, *, reference_result):
             config["polarization_mix"],
             path="measurement.polarization_mix",
         )
+    config["trace_scale"] = _parameter_from_config(config.get("trace_scale", 1.0), path="measurement.trace_scale")
+    config["trace_offset"] = _parameter_from_config(config.get("trace_offset", 0.0), path="measurement.trace_offset")
     reference_standard_config = dict(config.get("reference_standard", {"kind": "identity"}))
     kind = str(reference_standard_config.get("kind", "identity")).strip().lower()
     if kind == "identity":
         reference_standard = ReferenceStandard(kind="identity")
+    elif kind == "ambient_replacement":
+        reference_standard = ReferenceStandard(kind="ambient_replacement")
     elif kind == "stack":
         standard_sample = _build_sample_from_config(
             reference_standard_config["stack"],
@@ -508,13 +553,15 @@ def _measurement_from_config(measurement_config, *, reference_result):
         )
         reference_standard = ReferenceStandard(kind="stack", stack=standard_sample)
     else:
-        raise ValueError("measurement.reference_standard.kind must be 'identity' or 'stack'")
+        raise ValueError("measurement.reference_standard.kind must be 'identity', 'stack', or 'ambient_replacement'")
 
     return Measurement(
         mode=config.get("mode", "transmission"),
         angle_deg=config.get("angle_deg", 0.0),
         polarization=config.get("polarization", "s"),
         polarization_mix=config.get("polarization_mix"),
+        trace_scale=config.get("trace_scale", 1.0),
+        trace_offset=config.get("trace_offset", 0.0),
         reference_standard=reference_standard,
     )
 

@@ -1,0 +1,75 @@
+{
+  "measurement": {
+    "mode": "reflection",
+    "angle_deg": 0.0,
+    "polarization": "s",
+    "polarization_mix": null,
+    "trace_scale": 1.0,
+    "trace_offset": 0.0,
+    "reference_standard_kind": "identity"
+  },
+  "delay_recovery": {
+    "enabled": true,
+    "coarse_delay_ps": 0.0,
+    "initial_delay_ps": 0.0,
+    "fitted_delay_ps": 11.499999999878767
+  },
+  "recovered_parameters": {
+    "wafer_thickness_um": 625.014943845633,
+    "wafer_plasma_freq_thz": 3.5,
+    "wafer_gamma_thz": 0.05,
+    "delta_t_ps": 11.499999999878767
+  },
+  "parameter_sigmas": {
+    "wafer_thickness_um": 124.04407241718887,
+    "wafer_plasma_freq_thz": 0.3497508805557246,
+    "wafer_gamma_thz": 0.14764029855294947,
+    "delta_t_ps": 0.032892807427268286
+  },
+  "objective_value": 0.9038451549222625,
+  "initial_objective_value": 1.248194569759326,
+  "metric": "weighted_data_fit",
+  "metric_options": {
+    "lp_order": 8.0,
+    "freq_min_thz": null,
+    "freq_max_thz": null,
+    "time_weight": 1.0,
+    "amplitude_weight": 1.0,
+    "phase_weight": 1.0,
+    "transfer_floor_ratio": 1e-06
+  },
+  "weighting": {
+    "mode": "trace_amplitude",
+    "floor": 0.03,
+    "power": 2.0,
+    "smooth_window_samples": 41
+  },
+  "initial_residual_metrics": {
+    "data_fit": 1.238895992868941,
+    "weighted_data_fit": 1.248194569759326,
+    "mse": 4.175792611993613,
+    "normalized_mse": 0.032915853380404016,
+    "relative_l2": 1.113057048344307,
+    "relative_lp": 2.558329701181554,
+    "hybrid_transfer": 1799.7587636151227,
+    "transfer_amplitude_mse": 6.475045440669553,
+    "transfer_phase_mse": 1792.0355236046937,
+    "residual_rms": 2.043475620601727,
+    "fit_sigma": 1.1117037918257204,
+    "snr_db": -0.9303484824928654
+  },
+  "residual_metrics": {
+    "data_fit": 0.8190258356836945,
+    "weighted_data_fit": 0.9038451549222625,
+    "mse": 2.7605885024778396,
+    "normalized_mse": 0.02176045001138305,
+    "relative_l2": 0.9050004617035807,
+    "relative_lp": 0.9825778210957211,
+    "hybrid_transfer": 12009.090417813588,
+    "transfer_amplitude_mse": 5.715343417308579,
+    "transfer_phase_mse": 12002.471229241357,
+    "residual_rms": 1.6615018815751728,
+    "fit_sigma": 0.9030285549528377,
+    "snr_db": 0.86702398461933
+  }
+}

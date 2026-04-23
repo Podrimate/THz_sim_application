@@ -1,0 +1,53 @@
+{
+  "schema_name": "thzsim2.reference_manifest",
+  "schema_version": "1.0",
+  "run_id": "20260423_150938__reference__measured-fit-reference",
+  "created_at": "2026-04-23T15:09:38.215337+02:00",
+  "workflow": "reference",
+  "units": {
+    "time": "ps",
+    "frequency": "THz",
+    "thickness": "um",
+    "conductivity": "S/m"
+  },
+  "source": {
+    "kind": "processed_reference",
+    "path": "C:\\Users\\cs7bp\\Documents\\GitHub\\THz_sim_application\\Test_data_for_fitter\\A11013460_reflection\\reflection_setup_ref_after_with_AuMirror_A11013460_avg600_onDryAir10min_int56.csv",
+    "baseline_subtract": true,
+    "baseline_window_samples": 40,
+    "baseline_mode": "auto_pre_pulse",
+    "baseline_value": 0.0003451950494471746,
+    "crop_mode": "auto",
+    "crop_time_window_ps": [
+      1023.7,
+      1063.8
+    ]
+  },
+  "grid": {
+    "sample_count": 803,
+    "dt_ps": 0.049999999999954525,
+    "time_min_ps": 1023.7,
+    "time_max_ps": 1063.8,
+    "time_center_ps": 1043.75,
+    "pad_factor": 1
+  },
+  "trace_summary": {
+    "amplitude_scale": 28.31323851504983,
+    "pulse_center_ps": 1031.65
+  },
+  "spectrum_summary": {
+    "freq_min_thz": 0.0,
+    "freq_max_thz": 9.98754669988455,
+    "peak_freq_thz": 0.42341220423450704,
+    "spectral_centroid_thz": 0.6822917997280639
+  },
+  "files": {
+    "reference_trace_csv": "reference/reference_trace.csv",
+    "reference_spectrum_csv": "reference/reference_spectrum.csv",
+    "reference_summary_csv": "reference/reference_summary.csv",
+    "reference_summary_txt": "reference/reference_summary.txt",
+    "reference_manifest_json": "reference/manifest.json",
+    "reference_trace_png": "reference/reference_trace.png",
+    "reference_spectrum_png": "reference/reference_spectrum.png"
+  }
+}

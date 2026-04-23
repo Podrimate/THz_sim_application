@@ -1,0 +1,48 @@
+{
+  "slug": "advanced_refl_tau1_sigma1_60deg_s_725um",
+  "title": "Two-Drude reflection: $\\tau_1$ vs $\\sigma_1$ (60 deg, s-pol, $d_{\\mathrm{sub}}=725\\,\\mu$m, $d_{\\mathrm{epi}}=70\\,\\mu$m)",
+  "row_count": 625,
+  "measurement": {
+    "mode": "reflection",
+    "angle_deg": 60.0,
+    "polarization": "s",
+    "polarization_mix": null,
+    "reference_standard_kind": "stack"
+  },
+  "max_internal_reflections": 4,
+  "fixed_note": "paired tau-sigma map with the other carrier fixed (pair 1)",
+  "recovery_keys": [
+    "tau1_ps",
+    "sigma1_s_per_m"
+  ],
+  "diagnostic_columns_added": [
+    "noise_sigma",
+    "noise_seed",
+    "clean_peak_abs",
+    "noise_rms",
+    "observed_snr_db",
+    "optimizer_stage",
+    "initial_objective_value",
+    "final_objective_value",
+    "objective_improvement_fraction",
+    "stuck_to_initial",
+    "initial_tau1_ps",
+    "fit_minus_initial_tau1_ps",
+    "stuck_to_initial_tau1_ps",
+    "initial_sigma1_s_per_m",
+    "fit_minus_initial_sigma1_s_per_m",
+    "stuck_to_initial_sigma1_s_per_m"
+  ],
+  "noise_dynamic_range_db": 110.0,
+  "optimizer": {
+    "global_method": "none",
+    "method": "L-BFGS-B",
+    "options": {
+      "maxiter": 500,
+      "ftol": 1e-18,
+      "gtol": 1e-14,
+      "maxls": 100
+    },
+    "fd_rel_step": 1e-05
+  }
+}

@@ -4,7 +4,7 @@ import math
 from collections.abc import Sequence
 
 from thzsim2.models import Fit
-from thzsim2.models.sample import ConstantNK, Drude, DrudeLorentz, Layer, Lorentz, LorentzOscillator, NKFile
+from thzsim2.models.sample import ConstantNK, Drude, DrudeLorentz, Layer, Lorentz, LorentzOscillator, NKFile, TwoDrude
 
 
 def _as_finite_float(value, *, what: str, layer_name: str, allow_nonnegative=False, allow_positive=False):
@@ -87,6 +87,34 @@ def _validate_lorentz(material: Lorentz, layer_name: str):
     _validate_parameter_value(material.gamma_thz, what="Lorentz.gamma_thz", layer_name=layer_name, allow_nonnegative=True)
 
 
+def _validate_two_drude(material: TwoDrude, layer_name: str):
+    _validate_parameter_value(material.eps_inf, what="TwoDrude.eps_inf", layer_name=layer_name, allow_positive=True)
+    _validate_parameter_value(
+        material.plasma_freq1_thz,
+        what="TwoDrude.plasma_freq1_thz",
+        layer_name=layer_name,
+        allow_nonnegative=True,
+    )
+    _validate_parameter_value(
+        material.gamma1_thz,
+        what="TwoDrude.gamma1_thz",
+        layer_name=layer_name,
+        allow_nonnegative=True,
+    )
+    _validate_parameter_value(
+        material.plasma_freq2_thz,
+        what="TwoDrude.plasma_freq2_thz",
+        layer_name=layer_name,
+        allow_nonnegative=True,
+    )
+    _validate_parameter_value(
+        material.gamma2_thz,
+        what="TwoDrude.gamma2_thz",
+        layer_name=layer_name,
+        allow_nonnegative=True,
+    )
+
+
 def _validate_drude_lorentz(material: DrudeLorentz, layer_name: str):
     _validate_parameter_value(
         material.eps_inf,
@@ -155,6 +183,9 @@ def validate_layer(layer: Layer, index: int):
         return
     if isinstance(material, Drude):
         _validate_drude(material, layer.name)
+        return
+    if isinstance(material, TwoDrude):
+        _validate_two_drude(material, layer.name)
         return
     if isinstance(material, Lorentz):
         _validate_lorentz(material, layer.name)

@@ -1,0 +1,11 @@
+Sample Structure
+
+Ambient media: n_in = 1, n_out = 1
+Frequency grid: 402 points from 0 THz to 9.98754669988455 THz
+
+Layer 1: wafer
+  thickness_um = 625 um  [fit: 575 to 675 um]
+  material = Drude
+  eps_inf = 11.7  [fit: 4 to 20 ]
+  plasma_freq_thz = 0.1306887972237655 THz  [fit: 0.01 to 4 THz]
+  gamma_thz = 0.6366197723675814 THz  [fit: 0.01 to 4 THz]

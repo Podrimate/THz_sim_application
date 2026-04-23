@@ -11,7 +11,7 @@ from thzsim2.core.fitting import (
     sigma_s_per_m_from_drude_plasma_gamma,
     tau_ps_from_drude_gamma_thz,
 )
-from thzsim2.models import ConstantNK, Drude, Fit, Layer, Measurement, ReferenceStandard
+from thzsim2.models import ConstantNK, Drude, Fit, Layer, Measurement, ReferenceStandard, TwoDrude
 from thzsim2.workflows.reference import generate_reference_pulse, load_reference_csv, prepare_reference
 from thzsim2.workflows.sample_workflow import build_sample
 from thzsim2.workflows.study_setup import (
@@ -556,6 +556,68 @@ def test_study_setup_json_round_trip_and_run(tmp_path):
     study_result = run_study_from_setup_json(json_path)
     assert len(study_result.summary_rows) == 2
     assert "normalized_mse" in study_result.summary_rows[0]
+
+
+def test_study_setup_json_round_trip_supports_two_drude_materials(tmp_path):
+    setup = build_study_setup(
+        reference={
+            "kind": "generated_pulse",
+            "generate": {
+                "model": "sech_carrier",
+                "sample_count": 384,
+                "dt_ps": 0.03,
+                "time_center_ps": 8.0,
+                "pulse_center_ps": 5.0,
+                "tau_ps": 0.22,
+                "f0_thz": 0.9,
+                "amp": 1.0,
+                "phi_rad": 0.0,
+            },
+            "prepare": {
+                "output_root": tmp_path / "runs-two-drude",
+                "run_label": "setup-two-drude",
+            },
+        },
+        layers=[
+            Layer(
+                name="epi",
+                thickness_um=Fit(45.0, abs_min=30.0, abs_max=60.0, label="epi_thickness_um"),
+                material=TwoDrude(
+                    eps_inf=Fit(10.8, abs_min=8.0, abs_max=13.0, label="epi_eps_inf"),
+                    plasma_freq1_thz=Fit(0.95, abs_min=0.5, abs_max=1.4, label="epi_plasma1_thz"),
+                    gamma1_thz=Fit(0.4, abs_min=0.2, abs_max=0.8, label="epi_gamma1_thz"),
+                    plasma_freq2_thz=Fit(2.2, abs_min=1.5, abs_max=3.0, label="epi_plasma2_thz"),
+                    gamma2_thz=Fit(3.1, abs_min=2.0, abs_max=4.5, label="epi_gamma2_thz"),
+                ),
+            ),
+            Layer(name="oxide", thickness_um=18.0, material=ConstantNK(n=1.95, k=0.0)),
+            Layer(name="substrate", thickness_um=500.0, material=ConstantNK(n=3.42, k=0.0)),
+        ],
+        measurement={
+            "mode": "transmission",
+            "angle_deg": 15.0,
+            "polarization": "s",
+            "reference_standard": {"kind": "identity"},
+        },
+        study={
+            "truth": {
+                "layers[0].thickness_um": 42.0,
+                "layers[0].material.eps_inf": 10.9,
+                "layers[0].material.plasma_freq1_thz": 0.98,
+                "layers[0].material.gamma1_thz": 0.42,
+                "layers[0].material.plasma_freq2_thz": 2.3,
+                "layers[0].material.gamma2_thz": 3.0,
+            },
+            "noise_dynamic_range_db": 95.0,
+            "replicates": 1,
+        },
+    )
+
+    json_path = write_study_setup_json(tmp_path / "two_drude_setup.json", setup)
+    loaded = load_study_setup_json(json_path)
+    layer_config = loaded["sample"]["layers"][0]["material"]
+    assert layer_config["kind"] == "TwoDrude"
+    assert layer_config["plasma_freq1_thz"]["kind"] == "Fit"
 
 
 def test_measured_reference_study_path_keeps_main_pulse_available(tmp_path):

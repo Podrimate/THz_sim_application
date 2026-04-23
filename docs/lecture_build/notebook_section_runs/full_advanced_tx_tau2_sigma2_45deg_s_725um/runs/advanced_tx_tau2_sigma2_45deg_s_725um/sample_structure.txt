@@ -1,0 +1,25 @@
+Sample Structure
+
+Ambient media: n_in = 1, n_out = 1
+Frequency grid: 512 points from 0 THz to 16.63411458333319 THz
+
+Layer 1: epi
+  thickness_um = 70 um  [fit: 65 to 75 um]
+  material = TwoDrude
+  eps_inf = 11.7
+  plasma_freq1_thz = 0.6953905036659745 THz  [fit: 0.005348669543041127 to 5.348669543041127 THz]
+  gamma1_thz = 0.8507189549448235 THz  [fit: 0.1591549430918953 to 1.591549430918954 THz]
+  plasma_freq2_thz = 1.575008335086305 THz  [fit: 0.005348669543041127 to 5.348669543041127 THz]
+  gamma2_thz = 0.1951683133662641 THz  [fit: 0.1591549430918953 to 1.591549430918954 THz]
+
+Layer 2: oxide
+  thickness_um = 10 um  [fit: 8 to 12 um]
+  material = ConstantNK
+  n = 1.95
+  k = 0.005
+
+Layer 3: substrate
+  thickness_um = 725 um
+  material = ConstantNK
+  n = 3.42
+  k = 0.005

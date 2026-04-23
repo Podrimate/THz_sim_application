@@ -1,0 +1,113 @@
+{
+  "schema_name": "thzsim2.sample_manifest",
+  "schema_version": "1.0",
+  "created_at": "2026-04-23T15:22:14.669305+02:00",
+  "workflow": "sample",
+  "units": {
+    "time": "ps",
+    "frequency": "THz",
+    "thickness": "um",
+    "conductivity": "S/m"
+  },
+  "grid": {
+    "source": "reference.spectrum.freq_thz",
+    "sample_count": 512,
+    "freq_min_thz": 0.0,
+    "freq_max_thz": 16.634114583333194
+  },
+  "ambient_media": {
+    "n_in": 1.0,
+    "n_out": 1.0
+  },
+  "layers": [
+    {
+      "index": 0,
+      "name": "film",
+      "thickness_um": 525.0,
+      "thickness_fit": {
+        "key": "film_thickness_um",
+        "label": "film_thickness_um",
+        "path": "layers[0].thickness_um",
+        "bound_min": 515.0,
+        "bound_max": 535.0
+      },
+      "material_kind": "Drude",
+      "parameters": [
+        {
+          "name": "eps_inf",
+          "value": 11.7,
+          "unit": "",
+          "fit": null
+        },
+        {
+          "name": "plasma_freq_thz",
+          "value": 0.030088616944635483,
+          "unit": "THz",
+          "fit": {
+            "key": "film_plasma_freq_thz",
+            "label": "film_plasma_freq_thz",
+            "path": "layers[0].material.plasma_freq_thz",
+            "bound_min": 0.005348669543041127,
+            "bound_max": 5.348669543041127
+          }
+        },
+        {
+          "name": "gamma_thz",
+          "value": 0.5036548832022004,
+          "unit": "THz",
+          "fit": {
+            "key": "film_gamma_thz",
+            "label": "film_gamma_thz",
+            "path": "layers[0].material.gamma_thz",
+            "bound_min": 0.15915494309189535,
+            "bound_max": 1.5915494309189535
+          }
+        }
+      ],
+      "source_nk_file": null,
+      "export_nk_csv": "layer_01_film_nk.csv"
+    }
+  ],
+  "fit_parameters": [
+    {
+      "key": "film_thickness_um",
+      "label": "film_thickness_um",
+      "path": "layers[0].thickness_um",
+      "unit": "um",
+      "initial_value": 525.0,
+      "bound_min": 515.0,
+      "bound_max": 535.0,
+      "layer_name": "film"
+    },
+    {
+      "key": "film_plasma_freq_thz",
+      "label": "film_plasma_freq_thz",
+      "path": "layers[0].material.plasma_freq_thz",
+      "unit": "THz",
+      "initial_value": 0.030088616944635483,
+      "bound_min": 0.005348669543041127,
+      "bound_max": 5.348669543041127,
+      "layer_name": "film"
+    },
+    {
+      "key": "film_gamma_thz",
+      "label": "film_gamma_thz",
+      "path": "layers[0].material.gamma_thz",
+      "unit": "THz",
+      "initial_value": 0.5036548832022004,
+      "bound_min": 0.15915494309189535,
+      "bound_max": 1.5915494309189535,
+      "layer_name": "film"
+    }
+  ],
+  "files": {
+    "sample_structure_txt": "sample_structure.txt",
+    "sample_nk_png": "sample_nk.png",
+    "layer_nk_csvs": [
+      {
+        "name": "film",
+        "path": "layer_01_film_nk.csv"
+      }
+    ]
+  }
+}

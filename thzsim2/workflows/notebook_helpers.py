@@ -30,8 +30,10 @@ from thzsim2.workflows.study_workflow import (
     _normalize_study_config,
     run_study,
 )
-from thzsim2.core.fitting import fit_sample_trace
+from thzsim2.core.fitting import build_objective_weights, fit_sample_trace
 from thzsim2.core.forward import normalize_measurement, simulate_sample_from_reference
+
+C0_M_PER_S = 299792458.0
 
 
 _BUILTIN_MATERIAL_CSV = {
@@ -99,6 +101,34 @@ def create_run_output_dir(run_name, *, root="notebooks/runs"):
     path = root / f"{timestamp}__{slugify(run_name)}"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def enable_inline_plots():
+    try:
+        from IPython import get_ipython
+
+        shell = get_ipython()
+        if shell is None:
+            return False
+        shell.run_line_magic("matplotlib", "inline")
+        return True
+    except Exception:
+        return False
+
+
+def resolve_workflow_root(local_folder_name, *, use_google_drive=False, google_drive_subdir="THz_sim_application_outputs"):
+    if use_google_drive:
+        try:
+            from google.colab import drive
+        except Exception as exc:
+            raise RuntimeError("Google Drive output is only available inside Google Colab.") from exc
+        mount_root = Path("/content/drive")
+        drive.mount(str(mount_root), force_remount=False)
+        root = mount_root / "MyDrive" / str(google_drive_subdir).strip().strip("/\\") / str(local_folder_name).strip()
+    else:
+        root = Path.cwd() / str(local_folder_name)
+    root.mkdir(parents=True, exist_ok=True)
+    return root.resolve()
 
 
 def write_python_snapshot(path, **variables):
@@ -204,24 +234,113 @@ def inspect_trace_input(trace_input, *, time_column=None, signal_column=None):
     }
 
 
-def trace_spectrum(trace_data: TraceData):
+def _positive_frequency_spectrum(trace_data: TraceData):
     dt_s = float(trace_data.dt_ps) * 1e-12
     t0_s = float(trace_data.time_ps[0]) * 1e-12
     omega, spectrum = fft_t_to_w(trace_data.trace, dt=dt_s, t0=t0_s)
     freq_thz = omega / (2.0 * np.pi * 1e12)
     positive = freq_thz >= 0.0
     freq_thz = np.asarray(freq_thz[positive], dtype=np.float64)
+    omega = np.asarray(omega[positive], dtype=np.float64)
     spectrum = np.asarray(spectrum[positive], dtype=np.complex128)
-    amplitude_db = 20.0 * np.log10(np.maximum(np.abs(spectrum), 1e-30))
+    return freq_thz, omega, spectrum
+
+
+def _magnitude_to_db(magnitude, *, amplitude_reference=None, floor_db=-100.0):
+    magnitude = np.asarray(magnitude, dtype=np.float64)
+    reference = np.max(magnitude) if amplitude_reference is None else float(amplitude_reference)
+    reference = max(float(reference), 1e-30)
+    floor_linear = 10.0 ** (float(floor_db) / 20.0)
+    normalized = np.maximum(magnitude / reference, floor_linear)
+    return 20.0 * np.log10(normalized)
+
+
+def trace_spectrum(trace_data: TraceData, *, amplitude_reference=None, floor_db=-100.0):
+    freq_thz, _, spectrum = _positive_frequency_spectrum(trace_data)
+    amplitude_db = _magnitude_to_db(
+        np.abs(spectrum),
+        amplitude_reference=amplitude_reference,
+        floor_db=floor_db,
+    )
     phase_rad = np.unwrap(np.angle(spectrum))
     return freq_thz, amplitude_db, phase_rad
 
 
-def plot_trace_preview(trace_info, *, title_prefix, show_fft=False, freq_limits_thz=None, display=True):
+def estimate_single_layer_transmission_nk(
+    reference_trace: TraceData,
+    sample_trace: TraceData,
+    thickness_um,
+    *,
+    n_in=1.0,
+    n_out=1.0,
+    reference_floor_db=-45.0,
+):
+    thickness_m = float(thickness_um) * 1e-6
+    if thickness_m <= 0.0:
+        raise ValueError("thickness_um must be positive")
+
+    ref_freq_thz, ref_omega, ref_spectrum = _positive_frequency_spectrum(reference_trace)
+    sample_freq_thz, sample_omega, sample_spectrum = _positive_frequency_spectrum(sample_trace)
+    if ref_freq_thz.shape != sample_freq_thz.shape or not np.allclose(ref_freq_thz, sample_freq_thz, rtol=0.0, atol=1e-12):
+        raise ValueError("reference_trace and sample_trace must share the same frequency grid")
+    if ref_omega.shape != sample_omega.shape or not np.allclose(ref_omega, sample_omega, rtol=0.0, atol=1e-9):
+        raise ValueError("reference_trace and sample_trace must share the same angular-frequency grid")
+
+    reference_peak = max(float(np.max(np.abs(ref_spectrum))), 1e-30)
+    sample_peak = max(float(np.max(np.abs(sample_spectrum))), 1e-30)
+    transfer = sample_spectrum / np.where(np.abs(ref_spectrum) > 1e-30, ref_spectrum, np.nan + 0.0j)
+
+    positive_nonzero = ref_freq_thz > 0.0
+    freq_thz = ref_freq_thz[positive_nonzero]
+    omega = ref_omega[positive_nonzero]
+    transfer = transfer[positive_nonzero]
+    ref_mag = np.abs(ref_spectrum[positive_nonzero])
+    sample_mag = np.abs(sample_spectrum[positive_nonzero])
+
+    phase_rad = np.unwrap(np.angle(transfer))
+    # The measured transmission phase is relative to the reference trace, which
+    # usually corresponds to the same path filled with the input-side ambient.
+    n_est = float(n_in) + (C0_M_PER_S * phase_rad) / (omega * thickness_m)
+    interface_mag = np.abs(
+        (4.0 * float(n_in) * np.maximum(n_est, 1e-12))
+        / ((float(n_in) + n_est) * (n_est + float(n_out)))
+    )
+    amplitude_ratio = np.abs(transfer)
+    k_est = -(C0_M_PER_S / (omega * thickness_m)) * np.log(
+        np.maximum(amplitude_ratio / np.maximum(interface_mag, 1e-30), 1e-30)
+    )
+
+    reference_valid = _magnitude_to_db(ref_mag, amplitude_reference=reference_peak, floor_db=-180.0) >= float(reference_floor_db)
+    sample_valid = _magnitude_to_db(sample_mag, amplitude_reference=sample_peak, floor_db=-180.0) >= float(reference_floor_db)
+    valid_mask = reference_valid & sample_valid & np.isfinite(n_est) & np.isfinite(k_est)
+
+    n_est = np.where(valid_mask, n_est, np.nan)
+    k_est = np.where(valid_mask, k_est, np.nan)
+    return {
+        "freq_thz": np.asarray(freq_thz, dtype=np.float64),
+        "n": np.asarray(n_est, dtype=np.float64),
+        "k": np.asarray(k_est, dtype=np.float64),
+        "phase_rad": np.asarray(phase_rad, dtype=np.float64),
+        "transfer": np.asarray(transfer, dtype=np.complex128),
+        "valid_mask": np.asarray(valid_mask, dtype=bool),
+        "thickness_um": float(thickness_um),
+        "assumptions": {
+            "mode": "transmission",
+            "single_layer": True,
+            "normal_incidence_only": True,
+            "multiple_reflections_ignored": True,
+            "reference_trace_replaces_input_ambient": True,
+            "n_in": float(n_in),
+            "n_out": float(n_out),
+        },
+    }
+
+
+def plot_trace_preview(trace_info, *, title_prefix, show_fft=False, freq_limits_thz=None, fft_floor_db=-100.0, display=True):
     raw_time_ps = np.asarray(trace_info["raw_time_ps"], dtype=np.float64)
     raw_trace = np.asarray(trace_info["raw_trace"], dtype=np.float64)
     prepared = trace_info["prepared_trace"]
-    fig, axes = plt.subplots(2 if show_fft else 1, 2 if show_fft else 1, figsize=(12, 8 if show_fft else 4.5))
+    fig, axes = plt.subplots(3 if show_fft else 1, 1, figsize=(11, 10 if show_fft else 4.5), sharex=False)
     axes = np.atleast_1d(axes).ravel()
 
     ax = axes[0]
@@ -245,18 +364,27 @@ def plot_trace_preview(trace_info, *, title_prefix, show_fft=False, freq_limits_
                 metadata={"fft_preview_only": True},
             )
             raw_fft_label = "raw (resampled for FFT preview)"
-        freq_thz, raw_amp_db, raw_phase = trace_spectrum(raw_fft_trace)
-        prep_freq_thz, prep_amp_db, prep_phase = trace_spectrum(prepared)
+        raw_freq_thz, _, raw_spectrum = _positive_frequency_spectrum(raw_fft_trace)
+        prep_freq_thz, _, prep_spectrum = _positive_frequency_spectrum(prepared)
+        amp_reference = max(
+            float(np.max(np.abs(raw_spectrum))),
+            float(np.max(np.abs(prep_spectrum))),
+            1e-30,
+        )
+        raw_amp_db = _magnitude_to_db(np.abs(raw_spectrum), amplitude_reference=amp_reference, floor_db=fft_floor_db)
+        prep_amp_db = _magnitude_to_db(np.abs(prep_spectrum), amplitude_reference=amp_reference, floor_db=fft_floor_db)
+        raw_phase = np.unwrap(np.angle(raw_spectrum))
+        prep_phase = np.unwrap(np.angle(prep_spectrum))
         amp_ax = axes[1]
         phase_ax = axes[2]
-        amp_ax.plot(freq_thz, raw_amp_db, label=raw_fft_label)
+        amp_ax.plot(raw_freq_thz, raw_amp_db, label=raw_fft_label)
         amp_ax.plot(prep_freq_thz, prep_amp_db, label="prepared")
-        amp_ax.set_title(f"{title_prefix}: FFT Amplitude")
+        amp_ax.set_title(f"{title_prefix}: FFT Amplitude (Relative)")
         amp_ax.set_xlabel("Frequency (THz)")
         amp_ax.set_ylabel("Amplitude (dB)")
         amp_ax.grid(True, alpha=0.3)
         amp_ax.legend()
-        phase_ax.plot(freq_thz, raw_phase, label=raw_fft_label)
+        phase_ax.plot(raw_freq_thz, raw_phase, label=raw_fft_label)
         phase_ax.plot(prep_freq_thz, prep_phase, label="prepared")
         phase_ax.set_title(f"{title_prefix}: FFT Phase")
         phase_ax.set_xlabel("Frequency (THz)")
@@ -277,11 +405,45 @@ def plot_trace_preview(trace_info, *, title_prefix, show_fft=False, freq_limits_
     return fig, axes
 
 
+def plot_objective_weighting(trace_data, weighting, *, title="Objective Weighting Preview", display=True):
+    weighting = {} if weighting is None else dict(weighting)
+    mode = str(weighting.get("mode", "none")).strip().lower()
+    weights = build_objective_weights(
+        trace_data.trace,
+        mode=mode,
+        floor=weighting.get("floor", 0.05),
+        power=weighting.get("power", 2.0),
+        smooth_window_samples=weighting.get("smooth_window_samples", 41),
+    )
+    fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
+    axes[0].plot(trace_data.time_ps, trace_data.trace, label="trace")
+    axes[0].set_title(title)
+    axes[0].set_ylabel("Signal")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+
+    axes[1].plot(trace_data.time_ps, weights, label=f"weights ({mode})", color="tab:red")
+    axes[1].set_xlabel("Time (ps)")
+    axes[1].set_ylabel("Relative weight")
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend()
+    fig.tight_layout()
+    if display:
+        try:
+            from IPython.display import display as ipy_display
+
+            ipy_display(fig)
+        except Exception:
+            plt.show(block=False)
+    return weights, fig, axes
+
+
 def preview_sample_response(
     *,
     reference_result,
     layers,
     out_dir,
+    observed_trace=None,
     measurement=None,
     n_in=1.0,
     n_out=1.0,
@@ -289,6 +451,8 @@ def preview_sample_response(
     max_internal_reflections=0,
     show_fft=False,
     freq_limits_thz=None,
+    thickness_guess_um=None,
+    fft_floor_db=-100.0,
     display=True,
 ):
     sample_result = build_sample(
@@ -307,32 +471,82 @@ def preview_sample_response(
         measurement=measurement,
     )
     sample_trace = reference_result.trace.with_trace(simulation["sample_trace"])
-    fig, axes = plt.subplots(2 if show_fft else 1, 2 if show_fft else 1, figsize=(12, 8 if show_fft else 4.5))
-    axes = np.atleast_1d(axes).ravel()
+    observed_trace = sample_trace if observed_trace is None else observed_trace
+    nk_estimate = None
+    notes = []
+    can_estimate_nk = (
+        thickness_guess_um is not None
+        and measurement.mode == "transmission"
+        and abs(float(measurement.angle_deg)) < 1e-9
+    )
+    if can_estimate_nk:
+        try:
+            nk_estimate = estimate_single_layer_transmission_nk(
+                reference_result.trace,
+                observed_trace,
+                thickness_guess_um,
+                n_in=n_in,
+                n_out=n_out,
+            )
+        except Exception as exc:
+            notes.append(f"Direct n,k estimate unavailable: {exc}")
+    elif thickness_guess_um is not None:
+        notes.append("Direct n,k estimate is shown only for normal-incidence transmission previews.")
 
-    time_ax = axes[0]
+    if show_fft and nk_estimate is not None:
+        fig = plt.figure(figsize=(15, 10))
+        grid = fig.add_gridspec(3, 2, width_ratios=[1.9, 1.0], hspace=0.38, wspace=0.28)
+        time_ax = fig.add_subplot(grid[0, 0])
+        amp_ax = fig.add_subplot(grid[1, 0])
+        phase_ax = fig.add_subplot(grid[2, 0])
+        n_ax = fig.add_subplot(grid[0:2, 1])
+        k_ax = fig.add_subplot(grid[2, 1])
+        axes = np.array([time_ax, amp_ax, phase_ax, n_ax, k_ax], dtype=object)
+    else:
+        fig, axes = plt.subplots(3 if show_fft else 1, 1, figsize=(11, 10 if show_fft else 4.5), sharex=False)
+        axes = np.atleast_1d(axes).ravel()
+        time_ax = axes[0]
+        amp_ax = axes[1] if show_fft else None
+        phase_ax = axes[2] if show_fft else None
+        n_ax = None
+        k_ax = None
+
     time_ax.plot(reference_result.trace.time_ps, reference_result.trace.trace, label="reference")
-    time_ax.plot(sample_trace.time_ps, sample_trace.trace, label="sample preview")
-    time_ax.set_title("Reference And Simulated Sample Trace")
+    time_ax.plot(observed_trace.time_ps, observed_trace.trace, label="measured / uploaded sample", alpha=0.9)
+    time_ax.plot(sample_trace.time_ps, sample_trace.trace, label="sample preview", linewidth=1.4)
+    time_ax.set_title("Reference, Uploaded Sample, And Simulated Sample")
     time_ax.set_xlabel("Time (ps)")
     time_ax.set_ylabel("Signal")
     time_ax.grid(True, alpha=0.3)
     time_ax.legend()
 
     if show_fft:
-        ref_freq, ref_amp_db, ref_phase = trace_spectrum(reference_result.trace)
-        sam_freq, sam_amp_db, sam_phase = trace_spectrum(sample_trace)
-        amp_ax = axes[1]
-        phase_ax = axes[2]
+        ref_freq, _, ref_spectrum = _positive_frequency_spectrum(reference_result.trace)
+        obs_freq, _, obs_spectrum = _positive_frequency_spectrum(observed_trace)
+        sim_freq, _, sim_spectrum = _positive_frequency_spectrum(sample_trace)
+        amp_reference = max(
+            float(np.max(np.abs(ref_spectrum))),
+            float(np.max(np.abs(obs_spectrum))),
+            float(np.max(np.abs(sim_spectrum))),
+            1e-30,
+        )
+        ref_amp_db = _magnitude_to_db(np.abs(ref_spectrum), amplitude_reference=amp_reference, floor_db=fft_floor_db)
+        obs_amp_db = _magnitude_to_db(np.abs(obs_spectrum), amplitude_reference=amp_reference, floor_db=fft_floor_db)
+        sim_amp_db = _magnitude_to_db(np.abs(sim_spectrum), amplitude_reference=amp_reference, floor_db=fft_floor_db)
+        ref_phase = np.unwrap(np.angle(ref_spectrum))
+        obs_phase = np.unwrap(np.angle(obs_spectrum))
+        sim_phase = np.unwrap(np.angle(sim_spectrum))
         amp_ax.plot(ref_freq, ref_amp_db, label="reference")
-        amp_ax.plot(sam_freq, sam_amp_db, label="sample preview")
-        amp_ax.set_title("Reference And Sample FFT Amplitude")
+        amp_ax.plot(obs_freq, obs_amp_db, label="measured / uploaded sample")
+        amp_ax.plot(sim_freq, sim_amp_db, label="sample preview")
+        amp_ax.set_title("FFT Amplitude (Relative)")
         amp_ax.set_xlabel("Frequency (THz)")
         amp_ax.set_ylabel("Amplitude (dB)")
         amp_ax.grid(True, alpha=0.3)
         amp_ax.legend()
         phase_ax.plot(ref_freq, ref_phase, label="reference")
-        phase_ax.plot(sam_freq, sam_phase, label="sample preview")
+        phase_ax.plot(obs_freq, obs_phase, label="measured / uploaded sample")
+        phase_ax.plot(sim_freq, sim_phase, label="sample preview")
         phase_ax.set_title("Reference And Sample FFT Phase")
         phase_ax.set_xlabel("Frequency (THz)")
         phase_ax.set_ylabel("Phase (rad)")
@@ -341,7 +555,34 @@ def preview_sample_response(
         if freq_limits_thz is not None:
             for axis in (amp_ax, phase_ax):
                 axis.set_xlim(float(freq_limits_thz[0]), float(freq_limits_thz[1]))
-    fig.tight_layout()
+    if nk_estimate is not None and n_ax is not None and k_ax is not None:
+        for layer in sample_result.layers:
+            positive = np.asarray(layer.freq_thz, dtype=np.float64) > 0.0
+            layer_freq = np.asarray(layer.freq_thz, dtype=np.float64)[positive]
+            n_ax.plot(layer_freq, np.asarray(layer.n, dtype=np.float64)[positive], label=f"{layer.name} model")
+            k_ax.plot(layer_freq, np.asarray(layer.k, dtype=np.float64)[positive], label=f"{layer.name} model")
+        n_ax.plot(nk_estimate["freq_thz"], nk_estimate["n"], color="black", linewidth=1.2, label="direct estimate")
+        k_ax.plot(nk_estimate["freq_thz"], nk_estimate["k"], color="black", linewidth=1.2, label="direct estimate")
+        n_ax.set_title(f"n(f) With Thickness Guess = {float(thickness_guess_um):.3f} um")
+        n_ax.set_xlabel("Frequency (THz)")
+        n_ax.set_ylabel("n")
+        n_ax.grid(True, alpha=0.3)
+        n_ax.legend()
+        k_ax.set_title("k(f)")
+        k_ax.set_xlabel("Frequency (THz)")
+        k_ax.set_ylabel("k")
+        k_ax.grid(True, alpha=0.3)
+        k_ax.legend()
+        if freq_limits_thz is not None:
+            n_ax.set_xlim(float(freq_limits_thz[0]), float(freq_limits_thz[1]))
+            k_ax.set_xlim(float(freq_limits_thz[0]), float(freq_limits_thz[1]))
+    if nk_estimate is not None and n_ax is not None and k_ax is not None:
+        fig.subplots_adjust(left=0.07, right=0.98, top=0.96, bottom=0.10 if notes else 0.07, hspace=0.38, wspace=0.28)
+    elif notes:
+        fig.text(0.01, 0.01, "\n".join(notes), fontsize=9, va="bottom")
+        fig.tight_layout(rect=(0.0, 0.04, 1.0, 1.0))
+    else:
+        fig.tight_layout()
     if display:
         try:
             from IPython.display import display as ipy_display
@@ -349,6 +590,8 @@ def preview_sample_response(
             ipy_display(fig)
         except Exception:
             pass
+    simulation = dict(simulation)
+    simulation["nk_estimate"] = nk_estimate
     return sample_result, simulation, fig, axes
 
 
@@ -380,7 +623,7 @@ def preview_study_noise(
     noisy_td = reference_result.trace.with_trace(noisy_trace)
     noise_td = reference_result.trace.with_trace(noise_trace)
 
-    fig, axes = plt.subplots(2 if show_fft else 1, 2 if show_fft else 1, figsize=(12, 8 if show_fft else 4.5))
+    fig, axes = plt.subplots(3 if show_fft else 1, 1, figsize=(11, 10 if show_fft else 4.5), sharex=False)
     axes = np.atleast_1d(axes).ravel()
     time_ax = axes[0]
     time_ax.plot(clean_td.time_ps, clean_td.trace, label="noiseless sample")
@@ -393,15 +636,27 @@ def preview_study_noise(
     time_ax.legend()
 
     if show_fft:
-        clean_freq, clean_amp_db, clean_phase = trace_spectrum(clean_td)
-        noisy_freq, noisy_amp_db, noisy_phase = trace_spectrum(noisy_td)
-        noise_freq, noise_amp_db, noise_phase = trace_spectrum(noise_td)
+        clean_freq, _, clean_spectrum = _positive_frequency_spectrum(clean_td)
+        noisy_freq, _, noisy_spectrum = _positive_frequency_spectrum(noisy_td)
+        noise_freq, _, noise_spectrum = _positive_frequency_spectrum(noise_td)
+        amp_reference = max(
+            float(np.max(np.abs(clean_spectrum))),
+            float(np.max(np.abs(noisy_spectrum))),
+            float(np.max(np.abs(noise_spectrum))),
+            1e-30,
+        )
+        clean_amp_db = _magnitude_to_db(np.abs(clean_spectrum), amplitude_reference=amp_reference)
+        noisy_amp_db = _magnitude_to_db(np.abs(noisy_spectrum), amplitude_reference=amp_reference)
+        noise_amp_db = _magnitude_to_db(np.abs(noise_spectrum), amplitude_reference=amp_reference)
+        clean_phase = np.unwrap(np.angle(clean_spectrum))
+        noisy_phase = np.unwrap(np.angle(noisy_spectrum))
+        noise_phase = np.unwrap(np.angle(noise_spectrum))
         amp_ax = axes[1]
         phase_ax = axes[2]
         amp_ax.plot(clean_freq, clean_amp_db, label="noiseless sample")
         amp_ax.plot(noisy_freq, noisy_amp_db, label="noisy sample")
         amp_ax.plot(noise_freq, noise_amp_db, label="noise only")
-        amp_ax.set_title("Study Noise FFT Amplitude")
+        amp_ax.set_title("Study Noise FFT Amplitude (Relative)")
         amp_ax.set_xlabel("Frequency (THz)")
         amp_ax.set_ylabel("Amplitude (dB)")
         amp_ax.grid(True, alpha=0.3)
@@ -485,6 +740,15 @@ def estimate_study_runtime(
             max_internal_reflections=config["max_internal_reflections"],
             optimizer=config["optimizer"],
             measurement=measurement,
+            objective_weights=build_objective_weights(
+                observed_trace,
+                mode=config["weighting"].get("mode", "none"),
+                floor=config["weighting"].get("floor", 0.05),
+                power=config["weighting"].get("power", 2.0),
+                smooth_window_samples=config["weighting"].get("smooth_window_samples", 41),
+            )
+            if str(config["weighting"].get("mode", "none")).strip().lower() != "none"
+            else None,
         )
     elapsed = time.perf_counter() - started
     avg_case_s = elapsed / pilot_case_count
@@ -575,7 +839,7 @@ def plot_study_case_detail(
     observed = read_trace_csv(case_dir / "sample_observed_trace.csv")
     fitted = read_trace_csv(case_dir / "sample_fit_trace.csv")
     truth = read_trace_csv(case_dir / "sample_true_trace.csv")
-    fig, axes = plt.subplots(2 if show_fft else 1, 2 if show_fft else 1, figsize=(12, 8 if show_fft else 4.5))
+    fig, axes = plt.subplots(3 if show_fft else 1, 1, figsize=(11, 10 if show_fft else 4.5), sharex=False)
     axes = np.atleast_1d(axes).ravel()
     time_ax = axes[0]
     time_ax.plot(observed.time_ps, observed.trace, label="observed")
@@ -590,15 +854,27 @@ def plot_study_case_detail(
     time_ax.legend()
 
     if show_fft:
-        obs_freq, obs_amp_db, obs_phase = trace_spectrum(observed)
-        fit_freq, fit_amp_db, fit_phase = trace_spectrum(fitted)
-        true_freq, true_amp_db, true_phase = trace_spectrum(truth)
+        obs_freq, _, obs_spectrum = _positive_frequency_spectrum(observed)
+        fit_freq, _, fit_spectrum = _positive_frequency_spectrum(fitted)
+        true_freq, _, true_spectrum = _positive_frequency_spectrum(truth)
+        amp_reference = max(
+            float(np.max(np.abs(obs_spectrum))),
+            float(np.max(np.abs(fit_spectrum))),
+            float(np.max(np.abs(true_spectrum))),
+            1e-30,
+        )
+        obs_amp_db = _magnitude_to_db(np.abs(obs_spectrum), amplitude_reference=amp_reference)
+        fit_amp_db = _magnitude_to_db(np.abs(fit_spectrum), amplitude_reference=amp_reference)
+        true_amp_db = _magnitude_to_db(np.abs(true_spectrum), amplitude_reference=amp_reference)
+        obs_phase = np.unwrap(np.angle(obs_spectrum))
+        fit_phase = np.unwrap(np.angle(fit_spectrum))
+        true_phase = np.unwrap(np.angle(true_spectrum))
         amp_ax = axes[1]
         phase_ax = axes[2]
         amp_ax.plot(obs_freq, obs_amp_db, label="observed")
         amp_ax.plot(fit_freq, fit_amp_db, label="fit")
         amp_ax.plot(true_freq, true_amp_db, label="true", linestyle="--")
-        amp_ax.set_title("FFT Amplitude")
+        amp_ax.set_title("FFT Amplitude (Relative)")
         amp_ax.set_xlabel("Frequency (THz)")
         amp_ax.set_ylabel("Amplitude (dB)")
         amp_ax.grid(True, alpha=0.3)
@@ -618,7 +894,29 @@ def plot_study_case_detail(
     return fig, axes
 
 
-def save_fit_setup_snapshot(path, *, reference_trace, sample_trace, layers, measurement, preprocessing, optimizer, metric, max_internal_reflections, out_dir, notes=None, delay_options=None, n_in=1.0, n_out=1.0, overlay_imported=True):
+def save_fit_setup_snapshot(
+    path,
+    *,
+    reference_trace,
+    sample_trace,
+    layers,
+    measurement,
+    preprocessing,
+    optimizer,
+    metric,
+    max_internal_reflections,
+    out_dir,
+    notes=None,
+    delay_options=None,
+    weighting=None,
+    metric_options=None,
+    fit_strategy="single_pass",
+    reflection_counts=None,
+    stage_sequence=None,
+    n_in=1.0,
+    n_out=1.0,
+    overlay_imported=True,
+):
     setup = build_fit_setup(
         reference_trace=reference_trace,
         sample_trace=sample_trace,
@@ -627,8 +925,13 @@ def save_fit_setup_snapshot(path, *, reference_trace, sample_trace, layers, meas
         measurement=measurement,
         optimizer=optimizer,
         metric=metric,
+        metric_options=metric_options,
         max_internal_reflections=max_internal_reflections,
+        fit_strategy=fit_strategy,
+        reflection_counts=reflection_counts,
+        stage_sequence=stage_sequence,
         delay_options=delay_options,
+        weighting=weighting,
         n_in=n_in,
         n_out=n_out,
         overlay_imported=overlay_imported,

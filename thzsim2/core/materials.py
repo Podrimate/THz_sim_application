@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from thzsim2.models.sample import ConstantNK, Drude, DrudeLorentz, Lorentz
+from thzsim2.models.sample import ConstantNK, Drude, DrudeLorentz, Lorentz, TwoDrude
 
 
 def _as_freq_grid(freq_grid_thz):
@@ -41,6 +41,30 @@ def eps_lorentz(freq_grid_thz, *, eps_inf=1.0, delta_eps=1.0, resonance_thz=1.0,
     gamma = 2.0 * np.pi * float(gamma_thz) * 1e12
     denom = (omega0**2) - (omega**2) - 1j * gamma * omega
     return complex(eps_inf) + float(delta_eps) * (omega0**2) / denom
+
+
+def eps_two_drude(
+    freq_grid_thz,
+    *,
+    eps_inf=1.0,
+    plasma_freq1_thz=0.0,
+    gamma1_thz=0.0,
+    plasma_freq2_thz=0.0,
+    gamma2_thz=0.0,
+):
+    freq = _as_freq_grid(freq_grid_thz)
+    omega = 2.0 * np.pi * freq * 1e12
+    om = _omega_safe(omega)
+    plasma1 = 2.0 * np.pi * float(plasma_freq1_thz) * 1e12
+    gamma1 = 2.0 * np.pi * float(gamma1_thz) * 1e12
+    plasma2 = 2.0 * np.pi * float(plasma_freq2_thz) * 1e12
+    gamma2 = 2.0 * np.pi * float(gamma2_thz) * 1e12
+    eps = np.full(freq.shape, complex(eps_inf), dtype=np.complex128)
+    if plasma1 != 0.0:
+        eps = eps - (plasma1**2) / (om * (om + 1j * gamma1))
+    if plasma2 != 0.0:
+        eps = eps - (plasma2**2) / (om * (om + 1j * gamma2))
+    return eps
 
 
 def eps_drude_lorentz(
@@ -96,6 +120,25 @@ def evaluate_material_nk(freq_grid_thz, material):
             )
         )
 
+    if isinstance(material, TwoDrude):
+        nk = nk_from_eps(
+            eps_two_drude(
+                freq,
+                eps_inf=float(material.eps_inf),
+                plasma_freq1_thz=float(material.plasma_freq1_thz),
+                gamma1_thz=float(material.gamma1_thz),
+                plasma_freq2_thz=float(material.plasma_freq2_thz),
+                gamma2_thz=float(material.gamma2_thz),
+            )
+        )
+        zero = np.isclose(freq, 0.0)
+        if np.any(zero):
+            positive = np.flatnonzero(~zero)
+            if positive.size:
+                nk = np.asarray(nk, dtype=np.complex128)
+                nk[zero] = nk[int(positive[0])]
+        return nk
+
     if isinstance(material, Lorentz):
         return nk_from_eps(
             eps_lorentz(
@@ -127,5 +170,5 @@ def evaluate_material_nk(freq_grid_thz, material):
         )
 
     raise TypeError(
-        "evaluate_material_nk only supports resolved ConstantNK, Drude, Lorentz, and DrudeLorentz materials"
+        "evaluate_material_nk only supports resolved ConstantNK, Drude, TwoDrude, Lorentz, and DrudeLorentz materials"
     )

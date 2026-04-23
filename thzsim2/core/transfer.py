@@ -442,6 +442,18 @@ def _nk_from_material_dict(omega_rad_s, material):
         om = _omega_safe(omega)
         eps = eps_inf - (plasma**2) / (om * (om + 1j * gamma))
         nk = _nk_from_eps(eps)
+    elif kind == "TwoDrude":
+        eps = np.full(omega.shape, complex(float(params["eps_inf"])), dtype=np.complex128)
+        om = _omega_safe(omega)
+        plasma1 = 2.0 * np.pi * float(params["plasma_freq1_thz"]) * 1e12
+        gamma1 = 2.0 * np.pi * float(params["gamma1_thz"]) * 1e12
+        plasma2 = 2.0 * np.pi * float(params["plasma_freq2_thz"]) * 1e12
+        gamma2 = 2.0 * np.pi * float(params["gamma2_thz"]) * 1e12
+        if plasma1 != 0.0:
+            eps = eps - (plasma1**2) / (om * (om + 1j * gamma1))
+        if plasma2 != 0.0:
+            eps = eps - (plasma2**2) / (om * (om + 1j * gamma2))
+        nk = _nk_from_eps(eps)
     elif kind == "Lorentz":
         eps_inf = float(params["eps_inf"])
         delta_eps = float(params["delta_eps"])
@@ -485,7 +497,15 @@ def _nk_from_material_dict(omega_rad_s, material):
     neg = omega < 0.0
     out[neg] = np.conj(out[neg])
     zero = np.isclose(omega, 0.0)
-    out[zero] = np.real(out[zero]) + 0.0j
+    if np.any(zero):
+        if kind == "TwoDrude":
+            nonzero = np.flatnonzero(~zero)
+            if nonzero.size:
+                out[zero] = out[int(nonzero[0])]
+            else:
+                out[zero] = np.real(out[zero]) + 0.0j
+        else:
+            out[zero] = np.real(out[zero]) + 0.0j
     return out
 
 

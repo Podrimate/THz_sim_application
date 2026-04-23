@@ -1,0 +1,77 @@
+{
+  "dataset": "A11013460_transmission",
+  "sample": "SAMPLE1.csv",
+  "selection_reason": "local_relative_lp selected by balanced score=1.661803 (residual_rms=0.188550, weighted_data_fit=0.000280, max|residual|=1.204063, peak penalty=1.406505, residual peak at 2615.9000 ps, max|corr|=0.7121)",
+  "selection_score": 1.6618025450719032,
+  "prepared_metadata": {
+    "common_time_window_ps": [
+      2600.0,
+      2800.0
+    ],
+    "baseline_subtract": true,
+    "baseline_window_samples": 40,
+    "baseline_mode": "auto_pre_pulse",
+    "baseline_interval_ps": [
+      2605.3,
+      2610.3
+    ],
+    "baseline_sample_count": 101,
+    "baseline_fallback_used": false,
+    "crop_mode": "auto",
+    "crop_time_window_ps": [
+      2603.3,
+      2646.3
+    ],
+    "requested_crop_time_window_ps": [
+      2603.3,
+      2646.3
+    ],
+    "raw_reference_peak": {
+      "index": 226,
+      "time_ps": 2611.3,
+      "value": 116.2551544800465,
+      "abs_value": 116.2551544800465
+    },
+    "raw_sample_peak": {
+      "index": 326,
+      "time_ps": 2616.3,
+      "value": 78.84393238002339,
+      "abs_value": 78.84393238002339
+    },
+    "aligned_reference_peak": {
+      "index": 226,
+      "time_ps": 2611.3,
+      "value": 116.2551544800465,
+      "abs_value": 116.2551544800465
+    },
+    "aligned_sample_peak": {
+      "index": 326,
+      "time_ps": 2616.3,
+      "value": 78.84393238002339,
+      "abs_value": 78.84393238002339
+    },
+    "processed_reference_peak_retained": true,
+    "processed_sample_peak_retained": true,
+    "warnings": []
+  },
+  "residual_metrics": {
+    "data_fit": 0.0006534646487537929,
+    "weighted_data_fit": 0.00028048108140589587,
+    "mse": 0.03555109822780259,
+    "normalized_mse": 5.71679437606079e-06,
+    "relative_l2": 0.02556295461705851,
+    "relative_lp": 2.482149360283006e-15,
+    "hybrid_transfer": 5.420198289348193,
+    "transfer_amplitude_mse": 0.40551626763531734,
+    "transfer_phase_mse": 5.01440154063147,
+    "residual_rms": 0.1885499886709161,
+    "fit_sigma": 0.025519154871849626,
+    "snr_db": 31.8477790198769
+  },
+  "recovered_parameters": {
+    "wafer_thickness_um": 620.1950037467781,
+    "wafer_plasma_freq_thz": 0.12727734206663496,
+    "wafer_gamma_thz": 0.6296642545408766,
+    "delta_t_ps": -0.014909116513914905
+  }
+}

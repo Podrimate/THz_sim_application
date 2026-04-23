@@ -1,0 +1,10 @@
+param_i,param_j,correlation
+film_gamma_thz,film_gamma_thz,1.0
+film_gamma_thz,film_plasma_freq_thz,0.6097261602720452
+film_gamma_thz,film_thickness_um,0.03601724150124027
+film_plasma_freq_thz,film_gamma_thz,0.6097261602720452
+film_plasma_freq_thz,film_plasma_freq_thz,1.0
+film_plasma_freq_thz,film_thickness_um,0.4840259466555134
+film_thickness_um,film_gamma_thz,0.03601724150124027
+film_thickness_um,film_plasma_freq_thz,0.4840259466555134
+film_thickness_um,film_thickness_um,1.0

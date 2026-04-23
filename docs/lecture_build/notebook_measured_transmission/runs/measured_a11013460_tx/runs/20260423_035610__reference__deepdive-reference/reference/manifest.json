@@ -1,0 +1,53 @@
+{
+  "schema_name": "thzsim2.reference_manifest",
+  "schema_version": "1.0",
+  "run_id": "20260423_035610__reference__deepdive-reference",
+  "created_at": "2026-04-23T03:56:10.232967+02:00",
+  "workflow": "reference",
+  "units": {
+    "time": "ps",
+    "frequency": "THz",
+    "thickness": "um",
+    "conductivity": "S/m"
+  },
+  "source": {
+    "kind": "processed_reference",
+    "path": "C:\\Users\\cs7bp\\Documents\\GitHub\\THz_sim_application\\Test_data_for_fitter\\A11013460_transmission\\REFERENCE.csv",
+    "baseline_subtract": true,
+    "baseline_window_samples": 40,
+    "baseline_mode": "auto_pre_pulse",
+    "baseline_value": -0.8453576547311064,
+    "crop_mode": "auto",
+    "crop_time_window_ps": [
+      2603.3,
+      2646.3
+    ]
+  },
+  "grid": {
+    "sample_count": 861,
+    "dt_ps": 0.04999999999972715,
+    "time_min_ps": 2603.3,
+    "time_max_ps": 2646.3,
+    "time_center_ps": 2624.7999999999997,
+    "pad_factor": 1
+  },
+  "trace_summary": {
+    "amplitude_scale": 117.1005121347776,
+    "pulse_center_ps": 2611.3
+  },
+  "spectrum_summary": {
+    "freq_min_thz": 0.0,
+    "freq_max_thz": 9.988385598196203,
+    "peak_freq_thz": 0.5110336817681779,
+    "spectral_centroid_thz": 0.8210912166676899
+  },
+  "files": {
+    "reference_trace_csv": "reference/reference_trace.csv",
+    "reference_spectrum_csv": "reference/reference_spectrum.csv",
+    "reference_summary_csv": "reference/reference_summary.csv",
+    "reference_summary_txt": "reference/reference_summary.txt",
+    "reference_manifest_json": "reference/manifest.json",
+    "reference_trace_png": "reference/reference_trace.png",
+    "reference_spectrum_png": "reference/reference_spectrum.png"
+  }
+}

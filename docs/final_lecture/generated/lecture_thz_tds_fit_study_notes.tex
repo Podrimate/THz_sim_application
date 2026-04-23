@@ -1,0 +1,293 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{siunitx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{float}
+\graphicspath{{lecture_build/latest/figures/}}
+\title{Lecture Notes: THz-TDS Time-Domain Fit and Confidence-Map Studies}
+\author{THzSim2 Lecture Package}
+\date{\today}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Terahertz time-domain spectroscopy (THz-TDS) has moved from a niche laboratory technique toward a serious wafer-metrology platform because it can probe thickness, conductivity, carrier scattering time, multilayer interfaces, and front-side reflection standards without contact or destructive sample preparation. A dated keyword survey on April 22, 2026 shows that the semiconductor-wafer, thin-film, and ellipsometry literature for THz-TDS is already on the order of hundreds of papers and application reports, with representative recent work spanning high-precision THz ellipsometry on semiconductors, in-situ photoresist monitoring, and dedicated industrial semiconductor inspection programs \cite{ellipsometry_intro,gan_ellipsometry,photoresist_2025,fraunhofer_semicon}. The end goal behind these notes is a practical THz-TDS ellipsometer: a tool that does not only record a waveform, but converts that waveform into trustworthy thickness, carrier, and multilayer parameters under realistic angle, polarization, and reflection-standard constraints.
+\end{abstract}
+
+\section{Why Time-Domain Fitting and Study Matter}
+THz-TDS measures an electric-field transient rather than only a scalar spectrum. The waveform carries amplitude, phase, pulse arrival time, internal echoes, and angle-dependent interface information in one object. A time-domain fit therefore solves a stronger inverse problem than a workflow that first compresses the data into a transmission magnitude, a phase-unwrapped refractive-index curve, or an echo delay alone.
+
+In these notes, \emph{time-domain fitting} means: choose a parametric optical stack, propagate the measured reference pulse through that stack, compare the predicted sample waveform with the observed sample waveform, and optimize the unknown parameters until the residual trace is minimized. The residual is not just a scalar score; it shows \emph{where} and \emph{when} the model still fails.
+
+The \emph{study} workflow asks a different question. Instead of fitting one trace, it sweeps truth parameters, simulates a synthetic measurement, adds noise to that simulated trace, refits the noisy trace, and compares the recovered parameters to the truth. This is not a pure detector-sensitivity benchmark. It is a confidence study of the \emph{model plus measurement technique}. It answers: given this optical model, this angle/polarization setup, this reflection standard, and this noise level, how confidently can we believe that the fitted parameters are the right physical values?
+
+If the synthetic sample trace were refit without added noise and with a complete forward model, the recovered parameters should come back almost exactly. The study becomes interesting only after noise is injected, because then the maps reveal which parameter combinations remain stable and which become ambiguous. That is why the lecture heatmaps are recovery-confidence maps, not only waveform-misfit maps.
+
+\section{Why Time-Domain Fit is Often Better}
+\begin{itemize}[leftmargin=2em]
+\item It preserves waveform timing, so internal reflections and delayed echoes remain visible instead of being hidden inside a smooth spectral ratio.
+\item It uses the measured reference pulse as the source term, so the forward model automatically carries the instrument bandwidth, pulse chirp, and finite spectral support.
+\item It avoids a fragile intermediate phase-extraction step when the sample is thick, noisy, or strongly dispersive.
+\item It handles transmission, reflection, oblique incidence, and explicit reference standards inside one forward model.
+\end{itemize}
+
+The limitations matter just as much:
+\begin{itemize}[leftmargin=2em]
+\item local parameter correlations can produce a visually good fit but still leave the solution non-unique,
+\item preprocessing choices such as cropping and baseline subtraction move the fit,
+\item reflection standards and normalization assumptions matter strongly,
+\item a low objective value does not prove the physical model is complete.
+\end{itemize}
+
+\section{Forward Model Theory}
+Let $E_{\mathrm{ref}}(t)$ be the processed reference waveform and let its Fourier transform be
+\[
+\hat{E}_{\mathrm{ref}}(\omega)=\int_{-\infty}^{\infty}E_{\mathrm{ref}}(t)e^{-i\omega t}\,dt.
+\]
+The predicted sample waveform is constructed in frequency domain through
+\[
+\hat{E}_{\mathrm{sam}}(\omega)=H(\omega)\,\hat{E}_{\mathrm{ref}}(\omega),
+\]
+where $H(\omega)$ is the complex transfer function of the multilayer under the selected measurement mode.
+
+For layer $j$ with thickness $d_j$ and complex permittivity $\varepsilon_j(\omega)$, the code first forms the complex refractive index
+\[
+\tilde{n}_j(\omega)=\sqrt{\varepsilon_j(\omega)}.
+\]
+The physical branch is chosen so that $\operatorname{Im}\tilde{n}_j(\omega)\ge 0$, which enforces attenuation rather than unphysical gain in passive media.
+
+At oblique incidence, the conserved transverse index is
+\[
+\tilde{n}_0\sin\theta_0,
+\]
+and the branch-consistent longitudinal cosine used by the code is
+\[
+\cos\theta_j=\sqrt{1-\left(\frac{\tilde{n}_0\sin\theta_0}{\tilde{n}_j}\right)^2}.
+\]
+The sign is selected so that the wave propagates or attenuates in the physically forward direction. The propagation factor through layer $j$ is then
+\[
+P_j(\omega)=\exp\!\left(i\omega \tilde{n}_j(\omega)\cos\theta_j\frac{d_j}{c_0}\right).
+\]
+
+For an interface from medium $j$ to medium $k$, the Fresnel coefficients are
+\[
+r_{jk}^s=\frac{\tilde{n}_j\cos\theta_j-\tilde{n}_k\cos\theta_k}{\tilde{n}_j\cos\theta_j+\tilde{n}_k\cos\theta_k}, \qquad
+t_{jk}^s=\frac{2\tilde{n}_j\cos\theta_j}{\tilde{n}_j\cos\theta_j+\tilde{n}_k\cos\theta_k},
+\]
+for $s$ polarization, and
+\[
+r_{jk}^p=\frac{\tilde{n}_k\cos\theta_j-\tilde{n}_j\cos\theta_k}{\tilde{n}_k\cos\theta_j+\tilde{n}_j\cos\theta_k}, \qquad
+t_{jk}^p=\frac{2\tilde{n}_j\cos\theta_j}{\tilde{n}_k\cos\theta_j+\tilde{n}_j\cos\theta_k},
+\]
+for $p$ polarization.
+
+For a single finite layer between input medium $0$ and output medium $2$, the code keeps an explicit finite Fabry--Pérot sum. If the maximum number of internal round trips is $M$, then with
+\[
+z(\omega)=r_{10}(\omega)P_1(\omega)r_{12}(\omega)P_1(\omega),
+\]
+the transmission channel is
+\[
+T_M(\omega)=t_{01}(\omega)P_1(\omega)t_{12}(\omega)\sum_{m=0}^M z^m(\omega),
+\]
+and the reflection channel is
+\[
+R_M(\omega)=r_{01}(\omega)+t_{01}(\omega)P_1(\omega)r_{12}(\omega)P_1(\omega)t_{10}(\omega)\sum_{m=0}^{M-1} z^m(\omega).
+\]
+This is the exact finite-round-trip sum implemented in the single-layer fast path.
+
+For an arbitrary isotropic stack, the code uses a recursive construction from the last interface back to the first. If $R_{j+1}$ and $T_{j+1}$ are the effective reflection and transmission responses of the part of the stack behind layer $j$, then with
+\[
+D_j(\omega)=1-r_{j+1,j}(\omega)P_j(\omega)R_{j+1}(\omega)P_j(\omega),
+\]
+the recursion is
+\[
+T_j(\omega)=\frac{t_{j,j+1}(\omega)P_j(\omega)T_{j+1}(\omega)}{D_j(\omega)},
+\]
+\[
+R_j(\omega)=r_{j,j+1}(\omega)+\frac{t_{j,j+1}(\omega)P_j(\omega)R_{j+1}(\omega)P_j(\omega)t_{j+1,j}(\omega)}{D_j(\omega)}.
+\]
+Starting from the last interface and applying this recursion to every layer yields the effective stack transmission or reflection response seen by the incident reference pulse.
+
+Transmission and reflection then differ only in the extracted channel and the normalization standard. If a reference-standard stack $H_{\mathrm{std}}(\omega)$ is provided, the physical measured transfer is
+\[
+H_{\mathrm{phys}}(\omega)=\frac{H_{\mathrm{sample}}(\omega)}{H_{\mathrm{std}}(\omega)}.
+\]
+The final predicted sample spectrum is
+\[
+\hat{E}_{\mathrm{sam}}(\omega)=H_{\mathrm{phys}}(\omega)\hat{E}_{\mathrm{ref}}(\omega),
+\]
+and the model waveform is obtained by inverse FFT back to time domain. This is exactly why reference-standard choices matter so strongly in reflection: the fitted observable is not the raw reflected pulse, but the sample response relative to the chosen standard.
+
+\subsection{Drude and Two-Drude Materials}
+For a one-carrier Drude medium,
+\[
+\varepsilon(\omega)=\varepsilon_\infty-\frac{\omega_p^2}{\omega(\omega+i\gamma)}.
+\]
+The lecture studies frequently use relaxation time $\tau$ and DC conductivity $\sigma$ instead of $(\omega_p,\gamma)$:
+\[
+\gamma = \tau^{-1}, \qquad \sigma=\varepsilon_0\frac{\omega_p^2}{\gamma}.
+\]
+
+For the advanced epi stack the lecture uses a two-carrier extension,
+\[
+\varepsilon(\omega)=\varepsilon_\infty
+-\frac{\omega_{p1}^2}{\omega(\omega+i\gamma_1)}
+-\frac{\omega_{p2}^2}{\omega(\omega+i\gamma_2)}.
+\]
+This allows the epi layer to represent two conduction channels with different scattering times and conductivities.
+
+\section{How the Time-Domain Fit Works}
+The actual implementation has four stages:
+\begin{enumerate}[leftmargin=2em]
+\item preprocess the measured or generated traces by baseline subtraction, overlap alignment, and cropping,
+\item build a parameterized optical stack with bounded fit variables,
+\item simulate the sample waveform by propagating the measured reference pulse through that stack,
+\item optimize the stack parameters to minimize a time-domain objective.
+\end{enumerate}
+
+The default weighted waveform objective used for the lecture studies is
+\[
+\mathcal{J}_{w}=\frac{\sum_k w_k\left(E_{\mathrm{fit}}(t_k)-E_{\mathrm{obs}}(t_k)\right)^2}{\sum_k w_k E_{\mathrm{obs}}^2(t_k)}.
+\]
+The weights are generated from a smoothed amplitude envelope of the observed trace. This keeps the main pulse and the strongest informative echoes important while preventing long flat tails from dominating the fit.
+
+The measured transmission example also uses additional techniques that are important in practical THz fitting:
+\begin{itemize}[leftmargin=2em]
+\item bounded optimization in physically meaningful parameter ranges,
+\item staged objectives that mix waveform and transfer-function mismatch,
+\item delay recovery when the waveform alignment is not exact,
+\item finite internal-reflection sweeps so the fit does not hard-code one echo model,
+\item covariance and correlation estimation from the local Jacobian around the optimum.
+\end{itemize}
+
+Figure~\ref{fig:fit_a11013460_overview} shows the strong measured transmission example used in these notes. Figure~\ref{fig:fit_a11013460_correlation} shows the corresponding local parameter-correlation matrix.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{fit_a11013460_overview.pdf}
+\caption{Measured transmission example for A11013460. The waveform, residual, spectral amplitude, and spectral phase are all displayed because the time-domain fit must be judged by both waveform agreement and frequency-domain consistency.}
+\label{fig:fit_a11013460_overview}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.58\linewidth]{fit_a11013460_correlation.pdf}
+\caption{Local fit-correlation matrix for the measured transmission example. This matrix is local: it tells us which fitted parameters trade off with one another near the optimum of \emph{this} fit.}
+\label{fig:fit_a11013460_correlation}
+\end{figure}
+
+For real reflection data, these notes use the stronger measured mirror-reference pair from the A11013460 dataset. The observed wafer trace is fitted against a directly measured Au-mirror reference, while the model is allowed to absorb the mirror sign and setup mismatch through fitted scale, offset, angle, and polarization nuisance parameters. This produces a much cleaner teaching example than the earlier self-reference construction because the residual stays small enough for the waveform mismatch to be visually interpretable.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{fit_a11013460_reflection_overview.pdf}
+\caption{Measured reflection example for A11013460 using an explicit Au-mirror reference pair. The top-left panel shows the prepared reference/target pair, while the other panels show the fitted reflection response, residual, and spectral agreement.}
+\label{fig:fit_a11013460_reflection_overview}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.58\linewidth]{fit_a11013460_reflection_correlation.pdf}
+\caption{Local fit-correlation matrix for the measured A11013460 reflection example.}
+\label{fig:fit_a11013460_reflection_correlation}
+\end{figure}
+
+\section{Correlation Matrix vs Study Confidence Map}
+The fit-correlation matrix and the study confidence map are not the same object.
+
+The correlation matrix is \emph{local}. It is computed from the covariance of one fit around one optimum. It answers: near this optimum, which fitted variables move together? Because the underlying optimizer works in the actual fitted variables, the matrix is naturally expressed in thickness, plasma frequency, damping rate, and delay parameters.
+
+The study confidence map is \emph{global} over a chosen parameter plane. It answers: after simulating many truth points, adding noise, and refitting, which parts of the chosen parameter space recover reliably? The map is plotted in the physical parameters chosen for the study, such as $(\tau,\sigma)$ or $(\tau_1,\tau_2)$. A region can show a modest local correlation matrix at the nominal point and still produce a poor global confidence map once noise is added and the truth point moves away from nominal.
+
+This is exactly why both are needed:
+\begin{itemize}[leftmargin=2em]
+\item the correlation matrix diagnoses local parameter trade-offs inside one fit,
+\item the study map diagnoses parameter recoverability across a whole operating region.
+\end{itemize}
+
+\section{How the Study Works}
+For each requested map point, the lecture study performs the following loop:
+\begin{enumerate}[leftmargin=2em]
+\item overwrite the truth parameters in the stack,
+\item simulate the synthetic measurement with the same forward model used by the fit,
+\item add white Gaussian noise to the simulated sample trace at a chosen dynamic range,
+\item refit the noisy trace using the same model and fit settings,
+\item compare the fitted parameters to the truth,
+\item save the traces, summary rows, and local fit-correlation matrix.
+\end{enumerate}
+
+The color in the lecture heatmaps is not the objective itself. The main plotted quantity is the two-parameter recovery error
+\[
+\mathcal{E}_{\mathrm{rec}}=\sqrt{\frac{1}{2}\sum_i\log_{10}^2\!\left(\hat{p}_i/p_i^\star\right)},
+\]
+where $p_i^\star$ is the truth value and $\hat{p}_i$ is the recovered fitted value for the two axis parameters of the map. Low values therefore mean high confidence that the fit recovers the right physical parameters under the chosen noise level and measurement geometry.
+
+The weighted waveform objective $\mathcal{J}_w$ is still saved for every case and discussed in the text, but the lecture plots use $\mathcal{E}_{\mathrm{rec}}$ because these notes are meant to answer a metrology question: how confidently do we recover the right parameters?
+
+\section{One-Layer Drude Study}
+The one-layer study keeps $\varepsilon_\infty=11.7$ fixed and fits a thin-bounded thickness together with the Drude parameters. The low-conductivity and high-conductivity regimes are split deliberately because they create different dynamic ranges and different geometry sensitivities.
+
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{one_layer_tx_tau_sigma_low_s_0deg.pdf}
+\caption{One-layer Drude transmission: $\tau$ vs $\sigma$ (0 deg, s-pol, $d=525\,\mu$m). Left: linear recovery-confidence map. Middle: logarithmic recovery-confidence map. Right: Fisher-$z$ averaged local fit-correlation matrix over the whole map.}
+\label{fig:one_layer_tx_tau_sigma_low_s_0deg}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{one_layer_tx_tau_sigma_low_s_45deg.pdf}
+\caption{One-layer Drude transmission: $\tau$ vs $\sigma$ (45 deg, s-pol, $d=525\,\mu$m). Left: linear recovery-confidence map. Middle: logarithmic recovery-confidence map. Right: Fisher-$z$ averaged local fit-correlation matrix over the whole map.}
+\label{fig:one_layer_tx_tau_sigma_low_s_45deg}
+\end{figure}
+
+\section{Advanced Epi Study}
+The advanced study represents a wafer-style stack with a conductive two-Drude epi layer, a thin oxide interlayer, and a finite silicon substrate. The \SI{525}{\micro\meter} substrate cases use a \SI{10}{\micro\meter} epi layer, while the \SI{725}{\micro\meter} substrate cases use a \SI{50}{\micro\meter} epi layer. This lets the lecture compare two practically different epi-thickness regimes inside the same measurement framework.
+
+Reflection uses an explicit bare-substrate standard without the conductive epi layer. That is essential because the reflection observable is always a ratio to the chosen reference standard, not an isolated waveform in absolute units.
+
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{advanced_tx_tau1_tau2_0deg_s_525um.pdf}
+\caption{Two-Drude transmission: $\tau_1$ vs $\tau_2$ (0 deg, s-pol, $d_{\mathrm{sub}}=525\,\mu$m, $d_{\mathrm{epi}}=10\,\mu$m). Left: linear recovery-confidence map. Middle: logarithmic recovery-confidence map. Right: Fisher-$z$ averaged local fit-correlation matrix over the whole map.}
+\label{fig:advanced_tx_tau1_tau2_0deg_s_525um}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{advanced_tx_sigma1_sigma2_0deg_s_525um.pdf}
+\caption{Two-Drude transmission: $\sigma_1$ vs $\sigma_2$ (0 deg, s-pol, $d_{\mathrm{sub}}=525\,\mu$m, $d_{\mathrm{epi}}=10\,\mu$m). Left: linear recovery-confidence map. Middle: logarithmic recovery-confidence map. Right: Fisher-$z$ averaged local fit-correlation matrix over the whole map.}
+\label{fig:advanced_tx_sigma1_sigma2_0deg_s_525um}
+\end{figure}
+
+\section{Industrial Outlook: THz-TDS Ellipsometry for Wafer Metrology}
+The practical end point of this workflow is a THz-TDS ellipsometer or reflecto-ellipsometric metrology head that can choose angle, polarization, and reference-standard strategy to maximize parameter confidence for a given wafer stack. In that setting, the fit engine provides the forward-model inversion, while the study maps provide the operating envelope: which geometry is likely to recover the right conductivity, scattering time, or thickness before the system is deployed on the production floor.
+
+This is why both pieces matter in the wafer industry. The fit converts a measured waveform into physical quantities. The study tells us how much to trust those quantities under realistic noise and model assumptions. Together, they turn THz-TDS from a descriptive spectroscopy tool into a quantitative metrology workflow.
+
+
+\begin{thebibliography}{9}
+\bibitem{ellipsometry_intro}
+P. Dean \emph{et al.}, ``An introduction to terahertz time-domain spectroscopic ellipsometry,'' 2022.
+
+\bibitem{gan_ellipsometry}
+N. Tayama \emph{et al.}, ``Terahertz time-domain ellipsometry with high precision for the evaluation of GaN crystals with carrier densities up to $10^{20}\,\mathrm{cm}^{-3}$,'' \emph{Scientific Reports}, 2021.
+
+\bibitem{paint_ellipsometer}
+F. Gentele \emph{et al.}, ``THz Time-Domain Ellipsometer for Material Characterization and Paint Quality Control with More Than 5 THz Bandwidth,'' \emph{Applied Sciences}, 2022.
+
+\bibitem{photoresist_2025}
+H. Zhang \emph{et al.}, ``In-situ non-contact monitoring of photoresist thickness and degree of cure using terahertz time-domain spectroscopy,'' \emph{NDT \& E International}, 2025.
+
+\bibitem{fraunhofer_semicon}
+Fraunhofer ITWM, ``Activity Report 2024/2025,'' THz-SEMICON program summary, 2025.
+\end{thebibliography}
+
+\end{document}

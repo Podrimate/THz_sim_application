@@ -1,0 +1,51 @@
+{
+  "title": "One-layer Drude reflection: $\\tau$ vs $\\sigma$ (60 deg, p-pol, $d=725\\,\\mu$m)",
+  "slug": "one_layer_refl_tau_sigma_high_p_60deg",
+  "rows": [
+    {
+      "param_i": "film_gamma_thz",
+      "param_j": "film_gamma_thz",
+      "correlation": 1.0
+    },
+    {
+      "param_i": "film_gamma_thz",
+      "param_j": "film_plasma_freq_thz",
+      "correlation": 0.5169675256050956
+    },
+    {
+      "param_i": "film_gamma_thz",
+      "param_j": "film_thickness_um",
+      "correlation": 0.11346516445878567
+    },
+    {
+      "param_i": "film_plasma_freq_thz",
+      "param_j": "film_gamma_thz",
+      "correlation": 0.5169675256050956
+    },
+    {
+      "param_i": "film_plasma_freq_thz",
+      "param_j": "film_plasma_freq_thz",
+      "correlation": 1.0
+    },
+    {
+      "param_i": "film_plasma_freq_thz",
+      "param_j": "film_thickness_um",
+      "correlation": 0.5421138667854597
+    },
+    {
+      "param_i": "film_thickness_um",
+      "param_j": "film_gamma_thz",
+      "correlation": 0.11346516445878567
+    },
+    {
+      "param_i": "film_thickness_um",
+      "param_j": "film_plasma_freq_thz",
+      "correlation": 0.5421138667854597
+    },
+    {
+      "param_i": "film_thickness_um",
+      "param_j": "film_thickness_um",
+      "correlation": 1.0
+    }
+  ]
+}

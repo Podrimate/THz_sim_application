@@ -1,0 +1,113 @@
+{
+  "schema_name": "thzsim2.sample_manifest",
+  "schema_version": "1.0",
+  "created_at": "2026-04-23T04:03:44.481329+02:00",
+  "workflow": "sample",
+  "units": {
+    "time": "ps",
+    "frequency": "THz",
+    "thickness": "um",
+    "conductivity": "S/m"
+  },
+  "grid": {
+    "source": "reference.spectrum.freq_thz",
+    "sample_count": 431,
+    "freq_min_thz": 0.0,
+    "freq_max_thz": 9.988385598196203
+  },
+  "ambient_media": {
+    "n_in": 1.0,
+    "n_out": 1.0
+  },
+  "layers": [
+    {
+      "index": 0,
+      "name": "wafer",
+      "thickness_um": 625.0,
+      "thickness_fit": {
+        "key": "wafer_thickness_um",
+        "label": "wafer_thickness_um",
+        "path": "layers[0].thickness_um",
+        "bound_min": 600.0,
+        "bound_max": 650.0
+      },
+      "material_kind": "Drude",
+      "parameters": [
+        {
+          "name": "eps_inf",
+          "value": 11.7,
+          "unit": "",
+          "fit": null
+        },
+        {
+          "name": "plasma_freq_thz",
+          "value": 0.13068879722376547,
+          "unit": "THz",
+          "fit": {
+            "key": "wafer_plasma_freq_thz",
+            "label": "wafer_plasma_freq_thz",
+            "path": "layers[0].material.plasma_freq_thz",
+            "bound_min": 0.05,
+            "bound_max": 3.5
+          }
+        },
+        {
+          "name": "gamma_thz",
+          "value": 0.6366197723675814,
+          "unit": "THz",
+          "fit": {
+            "key": "wafer_gamma_thz",
+            "label": "wafer_gamma_thz",
+            "path": "layers[0].material.gamma_thz",
+            "bound_min": 0.1,
+            "bound_max": 2.5
+          }
+        }
+      ],
+      "source_nk_file": null,
+      "export_nk_csv": "layer_01_wafer_nk.csv"
+    }
+  ],
+  "fit_parameters": [
+    {
+      "key": "wafer_thickness_um",
+      "label": "wafer_thickness_um",
+      "path": "layers[0].thickness_um",
+      "unit": "um",
+      "initial_value": 625.0,
+      "bound_min": 600.0,
+      "bound_max": 650.0,
+      "layer_name": "wafer"
+    },
+    {
+      "key": "wafer_plasma_freq_thz",
+      "label": "wafer_plasma_freq_thz",
+      "path": "layers[0].material.plasma_freq_thz",
+      "unit": "THz",
+      "initial_value": 0.13068879722376547,
+      "bound_min": 0.05,
+      "bound_max": 3.5,
+      "layer_name": "wafer"
+    },
+    {
+      "key": "wafer_gamma_thz",
+      "label": "wafer_gamma_thz",
+      "path": "layers[0].material.gamma_thz",
+      "unit": "THz",
+      "initial_value": 0.6366197723675814,
+      "bound_min": 0.1,
+      "bound_max": 2.5,
+      "layer_name": "wafer"
+    }
+  ],
+  "files": {
+    "sample_structure_txt": "sample_structure.txt",
+    "sample_nk_png": "sample_nk.png",
+    "layer_nk_csvs": [
+      {
+        "name": "wafer",
+        "path": "layer_01_wafer_nk.csv"
+      }
+    ]
+  }
+}

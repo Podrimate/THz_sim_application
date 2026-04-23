@@ -1,0 +1,16 @@
+Sample Structure
+
+Ambient media: n_in = 1, n_out = 1
+Frequency grid: 512 points from 0 THz to 16.63411458333319 THz
+
+Layer 1: oxide
+  thickness_um = 10 um
+  material = ConstantNK
+  n = 1.95
+  k = 0.005
+
+Layer 2: substrate
+  thickness_um = 725 um
+  material = ConstantNK
+  n = 3.42
+  k = 0.005
